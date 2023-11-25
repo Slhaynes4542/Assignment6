@@ -3,15 +3,6 @@
 * TO-DO: Handle chat room name with spaces (initially operating under the assumption
 that chat room names will contain no spaces)
 
-
-
-
-
-
-
-
-
-
 */
 
 #include <stdio.h>
