@@ -120,12 +120,12 @@ int HandleMessage(char * message, struct connection_data* c_data, struct listhea
 					if(cp->type == SERVER)
 					{
 						snprintf(response, MAX, "d,%d. %s", i, cp->room_name);
-						write(c_data->conn_fd, response, MAX);
+						write(c_data->conn_fd, response, MAX);//TODO: nonblocking
 						i++;
 					}
 				}
 				snprintf(response, MAX, "c,Enter the name of the chat server you want to join: ");
-				write(c_data->conn_fd, response, MAX);
+				write(c_data->conn_fd, response, MAX);//TODO: nonblocking
 				return -1;
 			}
 			else
@@ -145,11 +145,11 @@ int HandleMessage(char * message, struct connection_data* c_data, struct listhea
 						/* send chat server ip address */
 						memset(response, 0, sizeof(response));
 						snprintf(response, MAX, "i,%s", cp->ip_address);
-						write(c_data->conn_fd, response, MAX);
+						write(c_data->conn_fd, response, MAX);//TODO: nonblocking
 						/* send chat server port number */
 						memset(response, 0, sizeof(response));
 						snprintf(response, MAX, "p,%i", cp->port_number);
-						write(c_data->conn_fd, response, MAX);
+						write(c_data->conn_fd, response, MAX);//TODO: nonblocking
 						return -1;
 					}
 				}
@@ -166,14 +166,15 @@ int HandleMessage(char * message, struct connection_data* c_data, struct listhea
 
 int main(int argc, char **argv)
 {
-	int						sockfd, new_sockfd			/* listening socket and new socket file descriptor		*/
+	int						sockfd, new_sockfd;			/* listening socket and new socket file descriptor		*/
 	unsigned int			clilen;						/* client length 										*/
 	struct sockaddr_in		cli_addr, serv_addr;		/* socket, client, and server addresses				    */
 	char					s[MAX];
 	fd_set 					readset;					/* set of file descriptors (sockets) available to read  */
 	fd_set 					writeset;					/* set of file descriptors (sockets) available to write */
 	int 					max_fd = 0;					/* maximum file descriptor in readset 					*/
-	int 					j;											
+	int 					j, nread, nwrite;
+	int						wb_space;					/* available write buffer space							*/						
 	struct listhead			head;						/* head of linked list containing client data			*/
 	struct connection_data	*c_ptr; 		 			/* pointers to client data 								*/
 	struct connection_data	*np;						/* pointer used for traversing list         		    */
@@ -206,7 +207,6 @@ int main(int argc, char **argv)
 	/* specify that the listening socket is listening for 5 connections */
 	listen(sockfd, 5);
 
-
 	clilen = sizeof(cli_addr);
 
 	for (;;) {
@@ -223,7 +223,7 @@ int main(int argc, char **argv)
 		} 
 
 		/* see if any descriptors are ready to be read, wait forever. */
-		if ((j=select(max_fd+1,&readset,NULL,NULL,NULL)) > 0) 
+		if ((j=select(max_fd+1,&readset,&writeset,NULL,NULL)) > 0) 
 		{
 			fprintf(stderr, "entered select.");//debug
 			if(FD_ISSET(sockfd,&readset))
@@ -235,6 +235,10 @@ int main(int argc, char **argv)
 					perror("server: accept error");
 					close(new_sockfd);//close new socket?
 					exit(1);//exit?
+				}
+				/*set new socket as nonblocking*/
+				if(fcntl(new_sockfd, F_SETFL, O_NONBLOCK) < 0){
+					perror("Error setting non-blocking socket.");
 				}
 				/* get server ip address */
 				//inet_ntop(AF_INET, &(cli_addr.sin_addr.s_addr), ip_add, INET_ADDRSTRLEN);		
@@ -281,14 +285,34 @@ int main(int argc, char **argv)
 			}
 			else
 			{
-				/*else, read from a connected socket */
+				/*else, process socket IO */
 				LIST_FOREACH(np, &head, entries)
 				{
+					/* if fd is in writeset, then process pending write */
+					if(FD_ISSET(np2->conn_fd, &writeset) && ((wb_space = &(np2->sendBuff[MAX]) - np2->sendptr) > 0))
+					{
+						if((nwrite = write(np2->conn_fd, np2->sendptr, wb_space)) < 0){
+							if (errno != EWOULDBLOCK) { perror("write error on socket"); }
+						}
+						else{
+							/*increment write buffer pointer */
+							np2->sendptr += nwrite;
+							
+							/* check if entire message has been written */
+							if(&(np2->sendBuff[MAX]) == np2->sendptr){
+								memset(np2->sendBuff, 0, MAX);
+								np2->sendptr = &(np2->sendBuff[0]); 
+							}
+							else{
+								FD_SET(np2->conn_fd, &writeset);
+							}
+						}
+					}
 					
+					/*process reads*/
 					if(FD_ISSET(np->conn_fd, &readset))
 					{
-						int n;
-						if((n = read(np->conn_fd, np->readptr, &(np->readBuff[MAX]) - np->readptr)) <= 0)
+						if((nread = read(np->conn_fd, np->readptr, &(np->readBuff[MAX]) - np->readptr)) <= 0)
 						{
 							if(errno != EWOULDBLOCK)
 							{
@@ -296,57 +320,57 @@ int main(int argc, char **argv)
 								if(FD_ISSET(np->conn_fd, &readset) && FD_ISSET(np->conn_fd, &writeset))
 								{
 									fprintf(stderr, "%s:%d Readable and writeable, closing\n", __FILE__, __LINE__);
-									LIST_REMOVE(np, head);
+									/* Remove connection from list */
+
+									/* if connection is a chat server, decrement count of chat servers */
+									if(np->type == SERVER)
+									{
+										server_count--;
+									}
+									LIST_REMOVE(np, entries);
 									close(np->conn_fd);
-									free(np);//TODO: verify this is correct
-									break;
+									free(np);
+									conn_count--;
+									/* set c_ptr to the end of the list */
+									LIST_FOREACH(np2, &head, entries)
+									{
+										if(LIST_NEXT(np2, entries) == NULL)
+										{
+											c_ptr = np2;
+										}
+									}
 								}
-							}else if(0 == n){
+							}else if(0 == nread){
 								fprintf(stderr, "%s:%d EOF on this socket\n", __FILE__, __LINE__);
-								LIST_REMOVE(np, head);
-								close(np->conn_fd);
+								//LIST_REMOVE(np, entries);
+								//close(np->conn_fd);
 								//free mem
 								//free(np); //maybe
-							}else{
-
 							}
-							/* Remove connection from list */
-
-							/* if connection is a chat server, decrement count of chat servers */
-							if(np->type == SERVER)
-							{
-								server_count--;
-							}
-
-							LIST_REMOVE(np, entries);
-							free(np);
-							conn_count--;
-							/* set c_ptr to the end of the list */
-							LIST_FOREACH(np2, &head, entries)
-							{
-								if(LIST_NEXT(np2, entries) == NULL)
-								{
-									c_ptr = np2;
-								}
-							}
-							
-							
-							
 						}
 						else
-						{
-							handle_ret = HandleMessage(s, np, head); 
+						{//nread > 0
+							handle_ret = HandleMessage(np->readptr, np, head); 
 
-							/* If HandleMessage() return 1, then send response */
+							/* If HandleMessage() return 1, then stage response */
 							if(handle_ret == 1)
 							{
-								write(np->conn_fd, response, MAX);
+								if(np->sendptr == &(np->sendBuff[0]))//TODO:verify this is correct
+								{
+									strncpy(np->sendptr, response, MAX);
+								}
+								FD_SET(np->conn_fd, &writeset);
 							}
 							/* if HandleMessage() return 0, client entered invalid chat room name */
 							if(handle_ret== 0)
 							{
 								snprintf(response, MAX, "v,Enter the name of the chat server you want to join:");
-								write(np->conn_fd, response, MAX);
+								if(np->sendptr == &(np->sendBuff[0]))//TODO:verify this is correct
+								{
+									strncpy(np->sendptr, response, MAX);
+								}
+								FD_SET(np->conn_fd, &writeset);
+								//write(np->conn_fd, response, MAX);
 							}
 						}		
 					}
