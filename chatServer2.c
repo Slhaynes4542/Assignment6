@@ -86,7 +86,7 @@ int HandleMessage(char * message, struct client_data* c_data, struct listhead he
 				snprintf(response, MAX, "n,Nickname already exists. Please enter unique nickname: ");
 				return 0;
 			}
-		break;
+		break;//breaks unneeded, formatting only
 
 		/*if first character is a 'c', process chat */
 		case 'c':
@@ -96,27 +96,24 @@ int HandleMessage(char * message, struct client_data* c_data, struct listhead he
 		break;
 
 		/* cases for directory server */
-
 		/*if first character is a 'd',chat room successful */
 		case 'd':
 			fprintf(stderr, "Chat Room opened!\n", __FILE__, __LINE__);
 			return 1;
-			break;
+		break;
 		
 		/*if first character is a 'o', chat room name is invalid, exit */
 		case 'e': 
 			fprintf(stderr, "Unable to open chat room. Chat room name already exists.\n");
-			exit(0);
+			exit(0); 
+		break;
 
 		/*otherwise, error reading message */
 		default:
 			fprintf(stderr, "%s:%d Error reading from client\n", __FILE__, __LINE__);
 			return -1; 
 		break;
-
 	}
-
-
 }
 
 int main(int argc, char **argv)
@@ -288,7 +285,7 @@ int main(int argc, char **argv)
 			}
 			else if(FD_ISSET(dir_sockfd, &readset))
 			{
-				//replace with nonblock
+				//replace with nonblock?
 				if (read(dir_sockfd, s, MAX) <= 0) 
 				{
 					perror("directory server closed.");
@@ -301,19 +298,54 @@ int main(int argc, char **argv)
 			}
 			else
 			{
-				/*else, read from a client socket */
+				/*else, handle client socket IO */
 				LIST_FOREACH(np, &head, entries)
 				{
+					/* if fd is in writeset, then process write */
+					if(FD_ISSET(np2->client_fd, &writeset) && ((wb_space = &(np2->write[MAX]) - np2->w_ptr) > 0))
+					{//TODO: verify implementation
+						if((nwritten = write(np2->client_fd, np2->w_ptr, wb_space)) < 0)
+						{
+							if (errno != EWOULDBLOCK)
+							{
+								perror("write error on socket");
+							}
+						}
+						else
+						{
+							/*increment write buffer pointer */
+							np2->w_ptr += nwritten;
+							
+							/* check if entire message has been written */
+							if(&(np2->write[MAX]) == np2->w_ptr){
+								memset(np2->write, 0, MAX);
+								np2->w_ptr = &(np2->write[0]); 
+							}
+							else{
+								FD_SET(np2->client_fd, &writeset);
+							}
+						}
+					}
+					/*read from socket*/
 					if(FD_ISSET(np->client_fd, &readset))
 					{
 						/*if read returns 0 or less, client has disconnected; Else, read message from client */
-						//replace with nonblock
-						if (read(np->client_fd, s, MAX) <= 0) 
-						{
+						if ((nread = read(np->client_fd, np->r_ptr, &(np->read[MAX]) - np->r_ptr)) <= 0) 
+						{//TODO: fix error checking
+							/* error checking */
+							if(errno != EWOULDBLOCK)
+							{
+								perror("read error on socket"); 
+							}
+							else if( nread == 0)
+							{
+								fprintf(stderr, "%s:%d: EOF on socket\n", __FILE__, __LINE__);
+							}
 							/* Remove client from list */
+							close(np->client_fd);
 							LIST_REMOVE(np, entries);
 							free(np->client_name);
-							free(np);
+							free(np);				
 							client_count--;
 							/* set c_ptr to the end of the list */
 							LIST_FOREACH(np2, &head, entries)
@@ -326,22 +358,39 @@ int main(int argc, char **argv)
 						}
 						else
 						{
-							handle_ret = HandleMessage(s, np, head); 
+							np->r_ptr += nread;
+							/*if the r_ptr is equal to the the MAX address of the read buffer, we have the entire message. Proceed with handling message.*/
+							if(np->r_ptr == &(np->read[MAX]))
+							{
+								/* handle message */
+								handle_ret = HandleMessage(np->read, np, head);
 
-							/* If HandleMessage() return 1, then broadcast message to all clients except the sender. */
-							if(handle_ret == 1)
-							{
-								LIST_FOREACH(np2, &head, entries)
+								/* reset r_ptr and clear read buffer */ 
+								memset(np->read, 0, MAX);
+								np->r_ptr = &(np->read[0]);
+								
+								/* If HandleMessage() return 1, then broadcast message to all clients except the sender. */
+								if(handle_ret == 1)
 								{
-									//replace with nonblock
-									write(np2->client_fd, response, MAX);
+									LIST_FOREACH(np2, &head, entries)
+									{
+										if(np2->w_ptr == &(np2->write[0]))
+										{
+											strncpy(np2->write, response, MAX);
+										}
+										FD_SET(np2->client_fd, &writeset);
+									}
 								}
-							}
-							/* If HandleMessage() returns 0, user has entered an invalid nickname. */
-							if( handle_ret == 0 )
-							{
-								//replace with nonblock
-								write(np->client_fd, response, MAX);   
+									/* If HandleMessage() returns 0, user has entered an invalid nickname. */
+								if( handle_ret == 0 )
+								{
+									if(np->w_ptr == &(np->write[0]))
+										{
+											strncpy(np->write, response, MAX);
+										}
+									FD_SET(np->client_fd, &writeset);
+									//write(np->client_fd, response, MAX);   
+								}
 							}
 						}		
 					}
