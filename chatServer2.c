@@ -3,15 +3,6 @@
 * TO-DO: Handle chat room name with spaces (initially operating under the assumption
 that chat room names will contain no spaces)
 
-
-
-
-
-
-
-
-
-
 */
 
 #include <stdio.h>
@@ -35,9 +26,13 @@ char 				ip_address[INET_ADDRSTRLEN];	 /* ip address for this server 							*/
 /*Client Data structure (linked list)*/
 	struct client_data 
 	{
-		int client_fd;
-		char* client_name; 
-		LIST_ENTRY(client_data) entries;  /* list */
+		int client_fd;						/*client socket*/
+		char* client_name;					/*client username*/
+		char write[MAX];					/*write buffer*/
+		char read[MAX];						/*read buffer*/
+		char *r_ptr;						/*read buffer pointer*/
+		char *w_ptr;						/*write buffer pointer*/
+		LIST_ENTRY(client_data) entries;	/* list */
 	};
 
 	LIST_HEAD(listhead, client_data); 
@@ -126,22 +121,27 @@ int HandleMessage(char * message, struct client_data* c_data, struct listhead he
 
 int main(int argc, char **argv)
 {
-	int				lis_sockfd, new_sockfd, 	    /* listening socket and new socket file descriptor		*/
-					dir_sockfd;			
-	unsigned int	clilen;								/* client length 										*/
-	struct sockaddr_in cli_addr, serv_addr;				/* socket, client, and server addresses				    */
+	int					lis_sockfd; 					/* listening socket 									*/
+	int					new_sockfd;	    				/* new socket file descriptor							*/
+	int					dir_sockfd;						/* directory server socket								*/
+	unsigned int		clilen;							/* client length 										*/
+	struct sockaddr_in	cli_addr, serv_addr;			/* socket, client, and server addresses				    */
 	char				s[MAX];
-	fd_set 				readset;						/* set of file descriptors (sockets) available to read  */
-	int 				max_fd = 0;						/* maximum file descriptor in readset 					*/
-	int j;											
-	struct listhead head;								/* head of linked list containing client data			*/
-	struct client_data *c_ptr; 		 					/* pointers to client data 								*/
-	struct client_data *np;								/* pointer used for traversing list         		    */
-	struct client_data *np2; 							/* pointer used for traversing list   					*/	
-	int client_count = 0; 								/* number of clients connected to the server 			*/
-	int handle_ret;										/* return value for HandleMessage() 					*/
-	char 				room_name[MAX];					/* chat room name 										*/
-	int 				port_number; 					/* chat server port number 						    	*/
+	fd_set				readset;						/* set of file descriptors (sockets) available to read  */
+	fd_set				writeset;						/* set of file descriptors (sockets) available to write */
+	int					max_fd = 0;						/* maximum file descriptor in readset 					*/
+	int					j;											
+	struct listhead 	head;							/* head of linked list containing client data			*/
+	struct client_data	*c_ptr;		 					/* pointers to client data 								*/
+	struct client_data	*np;							/* pointer used for traversing list         		    */
+	struct client_data	*np2;							/* pointer used for traversing list   					*/	
+	int					client_count = 0; 				/* number of clients connected to the server 			*/
+	int					handle_ret;						/* return value for HandleMessage() 					*/
+	char				room_name[MAX];					/* chat room name 										*/
+	int					port_number; 					/* chat server port number 						    	*/
+	int					nread;						    /* stores return value of read()						*/
+	int					wb_space;						/* avaiable write buffer space							*/
+	int					nwritten;						/* number of bytes written								*/
 
 
 /*********************************************************************************
@@ -154,7 +154,7 @@ int main(int argc, char **argv)
 	}
 	else{
 		snprintf(room_name, MAX, argv[1]);
-		port_number = atoi(argv[2]);
+		port_number = atoi(argv[2]);//TODO: check atoi()
 		
 	}
 
@@ -179,12 +179,14 @@ int main(int argc, char **argv)
 	else
 	{
 
-		fprintf(stderr, "%s:%d Connection Established!\n", __FILE__, __LINE__);
+		fprintf(stderr, "%s:%d Connection Established!\n", __FILE__, __LINE__);//debug
 		/* send room name to directory server */
 		snprintf(dir_response, MAX, "n,%s", room_name);
+		//TODO: nonblocking?
 		write(dir_sockfd, dir_response, MAX);
 		/* send port number to directory server */
 		snprintf(dir_response, MAX, "p,%d", port_number);
+		//TODO: nonblocking?
 		write(dir_sockfd, dir_response, MAX);
 
 	}
@@ -219,67 +221,74 @@ int main(int argc, char **argv)
 
 	for (;;)
 	{
-
 		fflush(stdout);
 		FD_ZERO(&readset);
+		FD_ZERO(&writeset);
 		FD_SET(0, &readset);
 		FD_SET(lis_sockfd, &readset);
 		FD_SET(dir_sockfd, &readset);
-		
 
-		/* re-add all socket descriptors to readset */
+		/* re-add all socket descriptors to readset/writeset */
      	LIST_FOREACH(np, &head, entries){
 			FD_SET(np->client_fd, &readset);
+			FD_SET(np->client_fd, &writeset);
 		} 
 
 		/* see if any descriptors are ready to be read, wait forever. */
-		if ((j=select(max_fd+1,&readset,NULL,NULL,NULL)) > 0) 
+		if ((j=select(max_fd+1,&readset,&writeset,NULL,NULL)) > 0) 
 		{
-
-			if(FD_ISSET(lis_sockfd,&readset)) 
+			if(FD_ISSET(lis_sockfd,&readset))
 			{
-			/* Accept a new connection request */
-					clilen = sizeof(cli_addr);
-					new_sockfd = accept(lis_sockfd, (struct sockaddr *) &cli_addr, &clilen);
-					if (new_sockfd < 0) {
-						perror("server: accept error");
-						exit(1);
-					}
-					printf("Client connected!");
+				/* Accept a new connection request */
+				clilen = sizeof(cli_addr);
+				new_sockfd = accept(lis_sockfd, (struct sockaddr *) &cli_addr, &clilen);
+				if (new_sockfd < 0) {
+					perror("server: accept error");
+					exit(1);
+				}
+				/*set socket as a non-blocking socket*/
+				if(fcntl(new_sockfd, F_SETFL, O_NONBLOCK) < 0){
+					perror("Error setting non-blocking socket.");
+				}
+				printf("Client connected!");
 
-			/*store client data in client data structure */
-					struct client_data *new_client = (struct client_data *)malloc(sizeof(struct client_data));
-					new_client->client_name = (char*)malloc(MAX);
-					new_client->client_fd = new_sockfd;
-					fprintf(stderr, "\nclient fd: %d\n", new_client->client_fd);
-					/* if client is the first client, make this client the head of the linked list and announce event; else, add client to end of list */
-					if(client_count == 0 )
-					{
-						LIST_INSERT_HEAD(&head, new_client, entries); 
-						c_ptr = new_client;
-						snprintf(response, MAX, "j,You are the first to join the chat!");
-						write(new_sockfd, response, MAX);
-					}
-					else
-					{
-						LIST_INSERT_AFTER(c_ptr, new_client, entries);
-						c_ptr = new_client;
-					}
-					
-					/*increment client count */
-					client_count++;
-					/*update max file descriptor */
-					if(max_fd < new_sockfd)
-					{
-						 max_fd = new_sockfd;
-					}	
-					
-					/*Prompt user to specify nickname */
+				/*store client data in client data structure */
+				struct client_data *new_client = (struct client_data *)malloc(sizeof(struct client_data));
+				new_client->client_name = (char*)malloc(MAX);
+				new_client->client_fd = new_sockfd;
+				new_client->r_ptr = &(new_client->read[0]);
+				new_client->w_ptr = &(new_client->write[0]);
+				fprintf(stderr, "\nclient fd: %d\n", new_client->client_fd);//debug
+				/*if client is the first client, make this client the head of the linked list and announce event; else, add client to end of list */
+				if(client_count == 0 )
+				{
+					LIST_INSERT_HEAD(&head, new_client, entries); 
+					c_ptr = new_client;
+					snprintf(response, MAX, "j,You are the first to join the chat!\nPlease Enter a nickname:");
+					snprintf(new_client->write, MAX, response);//put response into write buffer
+					FD_SET(new_client->client_fd, &writeset);//put client socket into writeset
+					//write(new_sockfd, response, MAX);
+				}
+				else
+				{
+					LIST_INSERT_AFTER(c_ptr, new_client, entries);
+					c_ptr = new_client;
 					snprintf(response, MAX, "j,Please enter nickname: ");
-					write(new_sockfd, response, MAX);
+					strncpy(new_client->write, response, MAX);
+					FD_SET(new_client->client_fd, &writeset);
+				}
+				
+				/*increment client count */
+				client_count++;
+				/*update max file descriptor */
+				if(max_fd < new_sockfd)
+				{
+					max_fd = new_sockfd;
+				}
 			}
 			else if(FD_ISSET(dir_sockfd, &readset))
 			{
+				//replace with nonblock
 				if (read(dir_sockfd, s, MAX) <= 0) 
 				{
 					perror("directory server closed.");
@@ -290,17 +299,15 @@ int main(int argc, char **argv)
 					HandleMessage(s, NULL, head);
 				}
 			}
-			
 			else
 			{
 				/*else, read from a client socket */
 				LIST_FOREACH(np, &head, entries)
 				{
-					
 					if(FD_ISSET(np->client_fd, &readset))
 					{
-					
 						/*if read returns 0 or less, client has disconnected; Else, read message from client */
+						//replace with nonblock
 						if (read(np->client_fd, s, MAX) <= 0) 
 						{
 							/* Remove client from list */
@@ -316,9 +323,6 @@ int main(int argc, char **argv)
 									c_ptr = np2;
 								}
 							}
-							
-							
-							
 						}
 						else
 						{
@@ -329,13 +333,14 @@ int main(int argc, char **argv)
 							{
 								LIST_FOREACH(np2, &head, entries)
 								{
-
-										write(np2->client_fd, response, MAX);
+									//replace with nonblock
+									write(np2->client_fd, response, MAX);
 								}
 							}
 							/* If HandleMessage() returns 0, user has entered an invalid nickname. */
 							if( handle_ret == 0 )
 							{
+								//replace with nonblock
 								write(np->client_fd, response, MAX);   
 							}
 						}		
