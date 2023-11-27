@@ -9,12 +9,12 @@
 #include <stdbool.h>
 
 /* Global Variables */
-char response[MAX];						  /* response from server 	 	 			  */
-bool has_nickname = FALSE;      		  /* has user entered nickname? 			  */
-struct sockaddr_in serv_addr;			  /* directory and chat server addresses 	  */
-int				sockfd, nsockfd;					  /* listening socket 						  */
-bool 			conn_dirserver;	  		 /* is client connected to directory server? */
-int port;
+char			response[MAX];				/* response from server						*/
+bool			has_nickname = FALSE;		/* has user entered nickname?				*/
+struct sockaddr_in serv_addr;				/* directory and chat server addresses		*/
+int				sockfd, nsockfd;			/* listening socket							*/
+bool			conn_dirserver;	  			/* is client connected to directory server? */
+int			port;
 
 /*************************************************
 * Method: HandleMessage
@@ -187,7 +187,7 @@ int main()
 				else 
 				{
 					/* handle response from server */
-					 HandleMessage(s);
+					HandleMessage(s);
 					/*print response from server */
 					fprintf(stderr, "\n%s\n", response);
 				}
