@@ -96,6 +96,25 @@ void ConnectToChatServer()
 		exit(1);
 	}
 
+	/*SSL: Preliminary SSL setup, link ssl object with directory server file descriptor */
+
+	
+
+	/* SSL: set up tls connection with chat server - get certificate */
+				
+
+	/* SSL: Validate the certificate if good keep connection, otherwise close connection
+	
+	if valid:
+	keep connection
+
+	if invalid:
+	SSL_shutdown()
+	then close socket ?
+	free memory
+	
+	*/
+
 }
 int main()
 {	
@@ -126,6 +145,26 @@ int main()
 		perror("client: can't connect to server");
 		exit(1);
 	}
+	
+	/*SSL: Preliminary SSL setup, link ssl object with directory server file descriptor */
+
+	
+
+	/* SSL: set up tls connection with directory server - get certificate */
+				
+
+	/* SSL: Validate the certificate if good keep connection, otherwise close connection
+	
+	if valid:
+	keep connection
+
+	if invalid:
+	SSL_shutdown()
+	then close socket ?
+	free memory
+	
+	*/
+
 	/* Once connection is established, immediately send a message to the directory server indicating this is a chat client*/
 	else
 	{

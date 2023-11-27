@@ -175,6 +175,28 @@ int main(int argc, char **argv)
 		perror("chat server: can't connect to server");
 		exit(1);
 	}
+
+
+	/*SSL: Preliminary SSL setup, link ssl object with directory server file descriptor */
+
+	
+
+	/* SSL: set up tls connection with directory server - get certificate */
+				
+
+	/* SSL: Validate the certificate if good keep connection, otherwise close connection
+	
+	if valid:
+	keep connection
+
+	if invalid:
+	SSL_shutdown()
+	then close socket ?
+	free memory
+	
+	*/
+
+
 	/* Once connection is established, immediately send chat room name and port number */
 	else
 	{
@@ -211,6 +233,8 @@ int main(int argc, char **argv)
 		exit(1);
 	}
 
+	/*1. SSL: Initialize SSL related objects Load in the certificate */
+
 	/* set max file descriptor */
 	max_fd = lis_sockfd;
 
@@ -246,6 +270,10 @@ int main(int argc, char **argv)
 						exit(1);
 					}
 					printf("Client connected!");
+
+			/*SSL: Create SSL session state based on context & call SSL_accept */
+
+			/*SSL: Change read and writes to SSL_read() SSL_write()*/
 
 			/*store client data in client data structure */
 					struct client_data *new_client = (struct client_data *)malloc(sizeof(struct client_data));

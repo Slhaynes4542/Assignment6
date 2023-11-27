@@ -11,6 +11,13 @@
 #include <sys/queue.h>
 #include <stdbool.h>
 
+
+/* SSL Implementation Notes
+
+*All SSL sudo code is prefixed with SSL
+
+*/
+
 //inet_ntop()
 
 /* enums */
@@ -182,6 +189,8 @@ int main(int argc, char **argv)
 		exit(1);
 	}
 
+	/*1. SSL: Initialize SSL related objects Load in the certificate */
+
 	/* Bind socket to local address */
 	memset((char *) &serv_addr, 0, sizeof(serv_addr));
 	serv_addr.sin_family		= AF_INET;
@@ -227,6 +236,11 @@ int main(int argc, char **argv)
 						perror("server: accept error");
 						exit(1);
 					}
+
+			/*SSL: Create SSL session state based on context & call SSL_accept */
+
+			/*SSL: Change read and writes to SSL_read() SSL_write()*/
+
 			/* get server ip address */
 				//inet_ntop(AF_INET, &(cli_addr.sin_addr.s_addr), ip_add, INET_ADDRSTRLEN);		
 
