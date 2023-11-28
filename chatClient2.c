@@ -94,7 +94,7 @@ int HandleMessage(struct client *client_info, char * message)
 		break;
 		/*Client entered an invalid chat room name, send a new one */
 		case 'v':
-			snprintf(response, MAX, "%s", parsed_message); //FIXME
+			snprintf(client_info->responseBuff, MAX, "%s", parsed_message); //FIXME
 			break;
 		default:
 		return -1;
