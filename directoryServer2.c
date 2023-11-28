@@ -89,7 +89,7 @@ int HandleMessage(char * message, struct connection_data* c_data, struct listhea
 			/*else, server needs to specify a new chat room name*/
 			else
 			{
-				snprintf(response, MAX, "e");
+				snprintf(response, MAX, "e,");
 			}
 			
 			c_data->type = SERVER;
@@ -189,7 +189,7 @@ int main(int argc, char **argv)
 		exit(1);
 	}
 
-	/*1. SSL: Initialize SSL related objects Load in the certificate */
+	/*1. SSL: Initialize SSL related objects Load in the cert~ificate */
 
 	/* Bind socket to local address */
 	memset((char *) &serv_addr, 0, sizeof(serv_addr));

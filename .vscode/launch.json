@@ -10,7 +10,7 @@
             "name": "Launch(gdb)",
             "program": "${fileBasenameNoExtension}",
             "cwd": "${workspaceRoot}",
-            "programArgs": "KSU22 22222224"
+            "programArgs": "KSU22 743343"
             
         }
     ]
