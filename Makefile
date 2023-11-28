@@ -31,13 +31,13 @@ chatServer1: chatServer1.c $(DEPS)
 	$(CC) $(LDFLAGS) $(CFLAGS) $(LIBS) -o $@ $<
 
 chatClient2: chatClient2.c $(DEPS)
-	$(CC) $(LDFLAGS) $(CFLAGS) $(LIBS) -o $@ $<
+	$(CC) $(LDFLAGS) $(CFLAGS) $(LIBS) -o $@ $< -lssl -lcrypto
 
 chatServer5: chatServer5.c $(DEPS)
-	$(CC) $(LDFLAGS) $(CFLAGS) $(LIBS) -o $@ $<
+	$(CC) $(LDFLAGS) $(CFLAGS) $(LIBS) -o $@ $< -lssl -lcrypto
 
 directoryServer2: directoryServer2.c $(DEPS)
-	$(CC) $(LDFLAGS) $(CFLAGS) $(LIBS) -o $@ $<
+	$(CC) $(LDFLAGS) $(CFLAGS) $(LIBS) -o $@ $< -lssl -lcrypto
 
 
 # Clean up the mess we made
