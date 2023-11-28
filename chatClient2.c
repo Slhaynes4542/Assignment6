@@ -9,12 +9,28 @@
 #include "common.h"
 #include <stdbool.h>
 
+
+//open ssl includes
+#include <openssl/crypto.h>
+#include <openssl/ssl.h>
+#include <openssl/err.h>
+
 /* Global Variables */
 bool has_nickname = FALSE;      		  /* has user entered nickname? 			  */
 struct sockaddr_in serv_addr;			  /* directory and chat server addresses 	  */
 int				sockfd, nsockfd;					  /* listening socket 						  */
 bool 			conn_dirserver;	  		 /* is client connected to directory server? */
+char 			expected_common_name[MAX]; //the expected common name our chat server should have
 int port;
+
+/* Global OpenSSL variables for the chat server */
+SSL_METHOD *method; //method that will be used to connect
+SSL_CTX *ctx; //method context
+SSL *ssl; //the actual ssl connection IMPORTANT
+X509 *cert; //the certificate we will recieve
+X509 *x509; //the human readuable x509 of the cert 
+char x509_string[1024];
+char common_name[MAX];
 
 struct client
 {
@@ -78,7 +94,7 @@ int HandleMessage(struct client *client_info, char * message)
 		break;
 		/*Client entered an invalid chat room name, send a new one */
 		case 'v':
-			snprintf(response, MAX, "%s", parsed_message);
+			snprintf(response, MAX, "%s", parsed_message); //FIXME
 			break;
 		default:
 		return -1;
@@ -111,14 +127,23 @@ void ConnectToChatServer()
 	}
 
 	/*SSL: Preliminary SSL setup, link ssl object with directory server file descriptor */
-
+	
+	//MAY HAVE TO MALLOC SOME MEMORY
+	OpenSSL_add_all_algorithms();
+	SSL_load_error_strings();
+	method = SSLv23_method();
+	ctx = SSL_CTX_new(method);
 	
 
 	/* SSL: set up tls connection with chat server - get certificate */
-				
+	ssl = SSL_new(ctx); //create a new SSL connection state with our method context
+	SSL_set_fd(ssl, nsockfd);
+	if ( SSL_connect(ssl) == -1 )     /* perform the connection */
+		ERR_print_errors_fp(stderr);        /* report any errors */
 
 	/* SSL: Validate the certificate if good keep connection, otherwise close connection
 	
+
 	if valid:
 	keep connection
 
@@ -128,6 +153,27 @@ void ConnectToChatServer()
 	free memory
 	
 	*/
+
+	cert = SSL_get_peer_certificate(ssl); //get cert from connection
+	x509 = X509_get_subject_name(cert); //get x509
+	X509_NAME_oneline(x509, x509_string, 1024); //get it in one line
+
+	//go through the x509 and find where the it has CN= , this is the common name, get the common name
+	for(int i = 0; i < 1020; i++){
+		if(x509_string[i] == 'C' && x509_string[i+1] == 'N' && x509_string[i+2] == '='){
+			snprintf(common_name, MAX, "%s", x509_string+i+3);
+			break;
+		}
+	}
+
+	//DEBUG
+	fprintf(stderr, "%s:%d Chat server common name is: %s\n Expected: %s\n", __FILE__, __LINE__, common_name, expected_common_name);
+	if(0 != strncmp(common_name, expected_common_name, MAX)){
+				fprintf(stderr, "%s:%d Common name is not correct, bad cert\n", __FILE__, __LINE__);
+				close(nsockfd);
+	}
+
+
 
 }
 int main()
@@ -143,7 +189,7 @@ int main()
 	client_info->readStartptr = client_info->readBuff;
 	client_info->readLocptr = client_info->readStartptr;
 	client_info->responseStartptr = client_info->responseBuff;
-	client_info->responseStartLoc = client_info->responseStartptr;
+	client_info->responseStartLoc = client_info->responseStartptr; //FIXME
 	#pragma endregion
 
 
@@ -174,32 +220,52 @@ int main()
 	}
 	
 	/*SSL: Preliminary SSL setup, link ssl object with directory server file descriptor */
-
-	
+	SSL_METHOD *directory_method;
+	SSL_CTX *directory_ctx;
+	OpenSSL_add_all_algorithms();       /* Load cryptos, et.al. */
+	SSL_load_error_strings();        /* Load/register error msg */
+	directory_method = SSLv23_method(); /* Create new client-method */ //FIXME dont know if this method will
+	directory_ctx = SSL_CTX_new(directory_method);            /* Create new context */
 
 	/* SSL: set up tls connection with directory server - get certificate */
-				
+	SSL *directory_ssl = SSL_new(directory_ctx);
+	SSL_set_fd(directory_ssl, sockfd);
+	if ( SSL_connect(directory_ssl) == -1 )     /* perform the connection */
+		ERR_print_errors_fp(stderr);
 
-	/* SSL: Validate the certificate if good keep connection, otherwise close connection
-	
-	if valid:
-	keep connection
 
-	if invalid:
-	SSL_shutdown()
-	then close socket ?
-	free memory
+	/* SSL: Validate the certificate if good keep connection, otherwise close connection */
+
+	char line[1024];
+	X509 *directory_cert = SSL_get_peer_certificate (directory_ssl);
+	X509 *directory_x509 = X509_get_subject_name(directory_cert);    /* Get subject */
+	X509_NAME_oneline(directory_x509, line, 1024); /* Convert it */
+
+	char directory_commonName[MAX];
+	for(int i = 0; i < 1020; i++){
+		if(line[i] == 'C' && line[i+1] == 'N' && line[i+2] == '='){
+			snprintf(directory_commonName, MAX, "%s", line+i+3);
+			break;
+		}
+	}
+
+	fprintf(stderr, "%s:%d server common name is: %s\n Expected: directory_server %s\n", __FILE__, __LINE__, directory_commonName);
+	if(0 != strncmp(directory_commonName, "directory_server", MAX)){
+		close(sockfd);
+		exit(1);
+	}
 	
-	*/
+
+
 
 	/* Once connection is established, immediately send a message to the directory server indicating this is a chat client*/
-	else
-	{
+		
 		conn_dirserver = TRUE;
 		fprintf(stderr, "%s:%d Connection Established!\n", __FILE__, __LINE__);
 		snprintf(client_info->responseBuff, MAX, "c");
-		write(sockfd, client_info->responseBuff, MAX);
-	}
+		SSL_write(directory_ssl, client_info->responseBuff, MAX); //FIXME may have to do a little mutli part check here to make sure we write evrything
+		//write(sockfd, client_info->responseBuff, MAX);
+	
 
 	for(;;) {
 
@@ -248,7 +314,9 @@ int main()
 			/* Check whether there's a message from the server to read */
 			if (FD_ISSET(sockfd, &readset)) 
 			{
-				if ((nread = read(sockfd, client_info->readLocptr, MAX - (client_info->readLocptr - client_info->readBuff))) <= 0) 
+				
+				//if ((nread = read(sockfd, client_info->readLocptr, MAX - (client_info->readLocptr - client_info->readBuff))) <= 0) 
+				if((nread = SSL_read(ssl, client_info->readLocptr, MAX - (client_info->readLocptr - client_info->readBuff)))  <= 0)
 				{
 					printf("Error reading from server\n");
 					exit(0);
@@ -264,7 +332,9 @@ int main()
 
 			if(FD_ISSET(sockfd, &writeset)){
 				/* Send the user's message to the server */
-				if((nwrite = write(sockfd, client_info->responseStartptr, client_info->responseLocptr - client_info->responseStartptr)) >= 0){
+				//if((nwrite = write(sockfd, client_info->responseStartptr, client_info->responseLocptr - client_info->responseStartptr)) >= 0)
+				if((nwrite = ssl_write(sockfd, client_info->responseStartptr, client_info->responseLocptr - client_info->responseStartptr)) >= 0)
+				{
 					client_info->responseLocptr -= nwrite; //Move back the amount of bytes we wrote from pointer, removing them from buffer
 					int bytesleft = client_info->responseLocptr - client_info->responseStartptr;
 					for(int i = 0; i < bytesleft; i++){
