@@ -333,7 +333,7 @@ int main()
 			if(FD_ISSET(sockfd, &writeset)){
 				/* Send the user's message to the server */
 				//if((nwrite = write(sockfd, client_info->responseStartptr, client_info->responseLocptr - client_info->responseStartptr)) >= 0)
-				if((nwrite = ssl_write(sockfd, client_info->responseStartptr, client_info->responseLocptr - client_info->responseStartptr)) >= 0)
+				if((nwrite = SSL_write(sockfd, client_info->responseStartptr, client_info->responseLocptr - client_info->responseStartptr)) >= 0)
 				{
 					client_info->responseLocptr -= nwrite; //Move back the amount of bytes we wrote from pointer, removing them from buffer
 					int bytesleft = client_info->responseLocptr - client_info->responseStartptr;

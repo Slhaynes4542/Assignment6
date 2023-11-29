@@ -166,7 +166,7 @@ int main(int argc, char **argv)
 	SSL *dirSSL;
 	SSL_METHOD *dirMethod;
 	SSL_CTX *dirCTX;
-	dirMethod = SSLv23_client_method();
+	dirMethod = SSLv23_method();
 	dirCTX = SSL_CTX_new(dirMethod);
 	if(!dirCTX){
 		perror("server: directory context creation error");
@@ -192,11 +192,7 @@ int main(int argc, char **argv)
 		perror("chat server: can't connect to server");
 		exit(1);
 	} else {
-		//set socket as a non-blocking socket
-		if(fcntl(dir_sockfd, F_SETFL, O_NONBLOCK) < 0)
-		{
-			perror("Error setting non-blocking socket.");
-		}
+
 
 		fprintf(stderr, "%s:%d Connection Established!\n", __FILE__, __LINE__);
 
@@ -207,11 +203,19 @@ int main(int argc, char **argv)
 			exit(1);
 		}
 		SSL_set_fd(dirSSL, dir_sockfd);
+
 		if(SSL_connect(dirSSL) <= 0){
 			perror("server: couldn't establish SSL connection to dir");
 			ERR_print_errors_fp(stderr);
 			exit(1);
 		}
+
+		//set socket as a non-blocking socket
+		if(fcntl(dir_sockfd, F_SETFL, O_NONBLOCK) < 0)
+		{
+			perror("Error setting non-blocking socket.");
+		}
+		
 
 		/* Read certificates from dir */
 		char cryptbuf[1024];
@@ -228,7 +232,7 @@ int main(int argc, char **argv)
 			}
 		}
 
-		fprintf(stderr, "%s:%d dir common name is: %s...\n Expected: directory_server");
+		fprintf(stderr, "%s:%d dir common name is: %s...\n Expected: directory_server\n", __FILE__, __LINE__, dirCommonName);
 		if(0 != strncmp(dirCommonName, "directory_server", MAX)){
 			close(dir_sockfd);
 			exit(1);
@@ -295,7 +299,7 @@ int main(int argc, char **argv)
 		exit(1);
 	}
 
-	cliSSL = ssl_new(cliCTX);
+	cliSSL = SSL_new(cliCTX);
 
 	/* set max file descriptor */
 	max_fd = sockfd;
@@ -324,41 +328,8 @@ int main(int argc, char **argv)
 		/* see if any descriptors are ready to be read, wait forever. */
 		if ((j=select(max_fd+1, &readset, &writeset, NULL, NULL)) > 0) 
 		{
-			if(FD_ISSET(dir_sockfd, &readset))
-			{
-						if ((nread = SSL_read(dir_serv.ssl, dir_serv.r_ptr, &(dir_serv.read[MAX]) - dir_serv.r_ptr)) <= 0) 
-						{	
-							/* error checking */
-							if(errno != SSL_ERROR_WANT_READ)
-							 { 
-								perror("read error on socket"); 
-							 }
-							else if(nread == 0)
-							{
-								fprintf(stderr, "%s:%d: EOF on socket\n", __FILE__, __LINE__);
-							}
-							else
-							{
-								perror("directory server closed.");
-								exit(0);
-							}
-							
-						}
-						/* if n is greater than 0, we've read in n bytes. Update read_ptr. */
-						else if(nread > 0){
-							dir_serv.r_ptr += nread; 
-						}
-						/*if the r_ptr is equal to the the MAX address of the read buffer, we have the entire message. Proceed with handling message.*/
-						if(dir_serv.r_ptr == &(dir_serv.read[MAX]))
-						{
-							/* handle message */
-							handle_ret = HandleMessage(dir_serv.read, NULL, head);
 
-							/* reset r_ptr and clear read buffer */ 
-							memset(dir_serv.read, 0, MAX);
-							dir_serv.r_ptr = &(dir_serv.read);
-						}	
-			}
+			
 
 			if(FD_ISSET(sockfd,&readset)) 
 			{
@@ -376,7 +347,7 @@ int main(int argc, char **argv)
 				}
 				
 				/* Associate SSL struct to newsock */
-				SSL *newSSL = ssl_new(cliCTX);
+				SSL *newSSL = SSL_new(cliCTX);
 				SSL_set_fd(newSSL, new_sockfd);
 				if(SSL_accept(cliSSL) <= 0) {
 					ERR_print_errors_fp(stderr);
