@@ -10,6 +10,9 @@
 #include <stdlib.h>
 #include <sys/queue.h>
 #include <stdbool.h>
+#include <openssl/err.h>
+#include <openssl/crypto.h>
+#include <openssl/ssl.h>
 
 /* global variables */
 char 				response[MAX];					 /* response to send to clients    						*/
@@ -18,7 +21,8 @@ char 				ip_address[INET_ADDRSTRLEN];	 /* ip address for this server 							*/
 /*Client Data structure (linked list)*/
 	struct client_data 
 	{
-		int client_fd;
+		SSL *ssl;
+		int sock;
 		char* client_name; 
 		char write[MAX], read[MAX];
 		char *r_ptr, *w_ptr;
@@ -29,7 +33,7 @@ char 				ip_address[INET_ADDRSTRLEN];	 /* ip address for this server 							*/
 /*Directory Server read and write buffer */
 	struct directory_server 
 	{
-		int dir_sockfd; 
+		SSL *ssl; 
 		char write[MAX], read[MAX];    /* buffers for writing room name and port number to directory server; buffer to read from directory server*/
 		char *r_ptr, *w_ptr;
 	};
@@ -152,8 +156,23 @@ int main(int argc, char **argv)
 	else{
 		snprintf(room_name, MAX, argv[1]);
 		port_number = atoi(argv[2]);
-		
 	}
+
+	/* Init SSL */
+	OpenSSL_add_all_algorithms();
+	SSL_load_error_strings();
+
+	/* SSL method/ctx for dir. server connection */
+	SSL *dirSSL;
+	SSL_METHOD *dirMethod;
+	SSL_CTX *dirCTX;
+	dirMethod = SSLv23_client_method();
+	dirCTX = SSL_CTX_new(dirMethod);
+	if(!dirCTX){
+		perror("server: directory context creation error");
+		exit(1);
+	}
+
 
 	/* Set up the address of the Directory Server to be contacted. */
 	memset((char *) &serv_addr, 0, sizeof(serv_addr));
@@ -172,29 +191,7 @@ int main(int argc, char **argv)
 	if (connect(dir_sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0) {
 		perror("chat server: can't connect to server");
 		exit(1);
-	}
-
-	/*SSL: Preliminary SSL setup, link ssl object with directory server file descriptor */
-
-	
-
-	/* SSL: set up tls connection with directory server - get certificate */
-				
-
-	/* SSL: Validate the certificate if good keep connection, otherwise close connection
-	
-	if valid:
-	keep connection
-
-	if invalid:
-	SSL_shutdown()
-	then close socket ?
-	free memory
-	
-	*/
-
-	else
-	{
+	} else {
 		//set socket as a non-blocking socket
 		if(fcntl(dir_sockfd, F_SETFL, O_NONBLOCK) < 0)
 		{
@@ -202,36 +199,79 @@ int main(int argc, char **argv)
 		}
 
 		fprintf(stderr, "%s:%d Connection Established!\n", __FILE__, __LINE__);
+
+		//associate ssl struct to dir socket
+		dirSSL = SSL_new(dirCTX);
+		if(!dirSSL){
+			perror("server: unable to create dir SSL struct");
+			exit(1);
+		}
+		SSL_set_fd(dirSSL, dir_sockfd);
+		if(SSL_connect(dirSSL) <= 0){
+			perror("server: couldn't establish SSL connection to dir");
+			ERR_print_errors_fp(stderr);
+			exit(1);
+		}
+
+		/* Read certificates from dir */
+		char cryptbuf[1024];
+		X509 *cert = SSL_get_peer_certificate(dirSSL);
+		X509 *x509 = X509_get_subject_name(cert);
+		X509_NAME_oneline(x509, cryptbuf, 1024);
+		printf("Subject: %s\n", cryptbuf);
+		x509 = X509_CRL_get_issuer_name(cert);
+		X509_NAME_oneline(x509, cryptbuf, 1024);
+		printf("Issuer: %s\n", cryptbuf);
 		
 		/*set up directory server struct */
-		dir_serv.dir_sockfd = dir_sockfd;
+		dir_serv.ssl = dirSSL; //Modified to use the directory ssl for ssl operations
 		dir_serv.r_ptr = &(dir_serv.read[0]);
 
 
 		/* send room name to directory server */
 		//snprintf(dir_serv.room_to, MAX, "n,%s", room_name);
 		snprintf(dir_response, MAX, "n,%s", room_name);
-		write(dir_sockfd, dir_response, MAX);				// HW6: how should we handle these two write()?
+		SSL_write(dirSSL, dir_response, MAX);				// HW6: how should we handle these two write()?
 
 		/* send port number to directory server */
 		//snprintf(dir_serv.port_num_to, MAX, "p,%d", port_number);
 		snprintf(dir_response, MAX, "p,%d", port_number);
-		write(dir_sockfd, dir_response, MAX);
-
-		//FD_SET(dir_serv.dir_sockfd, &writeset);
+		SSL_write(dirSSL, dir_response, MAX);
 
 	}
 
 	/* initialize linked list */
 	LIST_INIT(&head);
+	
+	/* SSL method/ctx for client connections */
+	SSL *cliSSL;
+	SSL_METHOD *cliMethod;
+	SSL_CTX *cliCTX;
+	cliMethod = SSLv23_server_method();
+	cliCTX = SSL_CTX_new(cliMethod);
+	if(!cliCTX){
+		perror("server: client context creation error");
+		exit(1);
+	}
+
+	/* Load certificate based on user provided room name (dir server conn) */
+	char fileName[MAX];
+	snprintf(fileName, MAX, "%s_chatServer.crt", room_name);
+	SSL_CTX_use_certificate_file(cliCTX, fileName, SSL_FILETYPE_PEM);
+
+	snprintf(fileName, MAX, "%s_chatServer.key", room_name);
+	SSL_CTX_use_PrivateKey_file(cliCTX, fileName, SSL_FILETYPE_PEM);
+	
+	if(!SSL_CTX_check_private_key(cliCTX)){
+		fprintf(stderr, "Key doesn't match public certificate.\n");
+		exit(1);
+	}
 
 	/* Create communication endpoint */
 	if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
 		perror("server: can't open stream socket");
 		exit(1);
 	}
-
-	/*1. SSL: Initialize SSL related objects Load in the certificate */
 
 	/* Bind socket to local address */
 	memset((char *) &serv_addr, 0, sizeof(serv_addr));
@@ -244,6 +284,8 @@ int main(int argc, char **argv)
 		perror("server: can't bind local address");
 		exit(1);
 	}
+
+	cliSSL = ssl_new(cliCTX);
 
 	/* set max file descriptor */
 	max_fd = sockfd;
@@ -258,30 +300,30 @@ int main(int argc, char **argv)
 		FD_ZERO(&readset);
 		FD_ZERO(&writeset);
 		FD_SET(0, &readset);
-		FD_SET(sockfd, &readset);
+		FD_SET(dir_sockfd, &writeset);
 		FD_SET(dir_sockfd, &readset);
 		
 
 		/* re-add all socket descriptors to readset */
      	LIST_FOREACH(np, &head, entries){
-			FD_SET(np->client_fd, &readset);
-			FD_SET(np->client_fd, &writeset);
+			FD_SET(np->sock, &readset);
+			FD_SET(np->sock, &writeset);
 			
 		} 
 	
 		/* see if any descriptors are ready to be read, wait forever. */
 		if ((j=select(max_fd+1, &readset, &writeset, NULL, NULL)) > 0) 
 		{
-			 if(FD_ISSET(dir_sockfd, &readset))
+			if(FD_ISSET(dir_sockfd, &readset))
 			{
-						if ((nread = read(dir_serv.dir_sockfd, dir_serv.r_ptr, &(dir_serv.read[MAX]) - dir_serv.r_ptr)) <= 0) 
+						if ((nread = SSL_read(dir_serv.ssl, dir_serv.r_ptr, &(dir_serv.read[MAX]) - dir_serv.r_ptr)) <= 0) 
 						{	
 							/* error checking */
-							if(errno != EWOULDBLOCK)
+							if(errno != SSL_ERROR_WANT_READ)
 							 { 
 								perror("read error on socket"); 
 							 }
-							else if( nread == 0)
+							else if(nread == 0)
 							{
 								fprintf(stderr, "%s:%d: EOF on socket\n", __FILE__, __LINE__);
 							}
@@ -310,61 +352,67 @@ int main(int argc, char **argv)
 
 			if(FD_ISSET(sockfd,&readset)) 
 			{
-			/* Accept a new connection request */
-					clilen = sizeof(cli_addr);
-					new_sockfd = accept(sockfd, (struct sockaddr *) &cli_addr, &clilen);
-					if (new_sockfd < 0) {
-						perror("server: accept error");
-						exit(1);
-					}
-					//set socket as a non-blocking socket
-					if(fcntl(new_sockfd, F_SETFL, O_NONBLOCK) < 0){
-						perror("Error setting non-blocking socket.");
-					}
+				/* Accept a new connection request */
+				clilen = sizeof(cli_addr);
+				new_sockfd = accept(sockfd, (struct sockaddr *) &cli_addr, &clilen);
+				if (new_sockfd < 0) {
+					perror("server: accept error");
+					exit(1);
+				}
 
-					printf("Client connected!");
+				/* Set socket as a non-blocking socket */
+				if(fcntl(new_sockfd, F_SETFL, O_NONBLOCK) < 0){
+					perror("Error setting non-blocking socket.");
+				}
+				
+				/* Associate SSL struct to newsock */
+				SSL *newSSL = ssl_new(cliCTX);
+				SSL_set_fd(newSSL, new_sockfd);
+				if(SSL_accept(cliSSL) <= 0) {
+					ERR_print_errors_fp(stderr);
+					exit(1);
+				}
 
-			/*SSL: Create SSL session state based on context & call SSL_accept */
-
-			/*SSL: Change read and writes to SSL_read() SSL_write()*/					
+				printf("Client connected!");				
 
 			/*store client data in client data structure */
-					struct client_data *new_client = (struct client_data *)malloc(sizeof(struct client_data));
-					new_client->client_name = (char*)malloc(MAX);
-					new_client->client_fd = new_sockfd;
-					new_client->r_ptr = &(new_client->read[0]);
-					new_client->w_ptr = &(new_client->write);
-					fprintf(stderr, "\nclient fd: %d\n", new_client->client_fd);
-					/* if client is the first client, make this client the head of the linked list and announce event; else, add client to end of list */
-					if(client_count == 0 )
-					{
-						LIST_INSERT_HEAD(&head, new_client, entries); 
-						c_ptr = new_client;
-						snprintf(response, MAX, "j,You are the first to join the chat!\nPlease Enter a nickname:");
-						snprintf(new_client->write, MAX, response);
-						new_client->writeable = TRUE;
-					}
-					else
-					{
-						LIST_INSERT_AFTER(c_ptr, new_client, entries);
-						c_ptr = new_client;
-						snprintf(response, MAX, "j,Please enter nickname: ");
-						strncpy(new_client->write, response, MAX);
-						new_client->writeable = TRUE;
+				struct client_data *new_client = (struct client_data *)malloc(sizeof(struct client_data));
+				new_client->client_name = (char*)malloc(MAX);
+				new_client->sock = new_sockfd;
+				new_client->ssl = newSSL;
+				new_client->r_ptr = &(new_client->read[0]);
+				new_client->w_ptr = &(new_client->write);
+				//fprintf(stderr, "\nclient fd: %d\n", (int)(new_client->ssl));
+				/* if client is the first client, make this client the head of the linked list and announce event; else, add client to end of list */
+				if(client_count == 0 )
+				{
+					LIST_INSERT_HEAD(&head, new_client, entries); 
+					c_ptr = new_client;
+					snprintf(response, MAX, "j,You are the first to join the chat!\nPlease Enter a nickname:");
+					snprintf(new_client->write, MAX, response);
+					new_client->writeable = TRUE;
+				}
+				else
+				{
+					LIST_INSERT_AFTER(c_ptr, new_client, entries);
+					c_ptr = new_client;
+					snprintf(response, MAX, "j,Please enter nickname: ");
+					strncpy(new_client->write, response, MAX);
+					new_client->writeable = TRUE;
 
-					}
-					
-					/*increment client count */
-					client_count++;
-					/*update max file descriptor */
-					if(max_fd < new_sockfd)
-					{
-						 max_fd = new_sockfd;
-					}	
-					
-					/*Prompt user to specify nickname */
-					
-					//write(new_sockfd, response, MAX);
+				}
+				
+				/*increment client count */
+				client_count++;
+				/*update max file descriptor */
+				if(max_fd < new_sockfd)
+				{
+						max_fd = new_sockfd;
+				}	
+				
+				/*Prompt user to specify nickname */
+				
+				//write(new_sockfd, response, MAX);
 			}
 			else
 			{
@@ -372,23 +420,25 @@ int main(int argc, char **argv)
 				LIST_FOREACH(np, &head, entries)
 				{
 					
-					if(FD_ISSET(np->client_fd, &readset))
+					if(FD_ISSET(np->sock, &readset))
 					{
 					
 						/*if read returns 0 or less, client has disconnected; Else, read message from client */
-						if ((nread = read(np->client_fd, np->r_ptr, &(np->read[MAX]) - np->r_ptr)) <= 0) 
+						if ((nread = SSL_read(np->ssl, np->r_ptr, &(np->read[MAX]) - np->r_ptr)) <= 0) 
 						{	
 							/* error checking */
-							if(errno != EWOULDBLOCK)
-							 { 
+							if(errno != SSL_ERROR_WANT_READ)
+							{ 
 								perror("read error on socket"); 
-							 }
+							}
 							else if( nread == 0)
 							{
 								fprintf(stderr, "%s:%d: EOF on socket\n", __FILE__, __LINE__);
 							}
 							/* Remove client from list */
-							close(np->client_fd);
+							SSL_shutdown(np->ssl);
+							SSL_free(np->ssl);
+							close(np->sock);
 							LIST_REMOVE(np, entries);
 							free(np->client_name);
 							free(np);				
@@ -422,29 +472,27 @@ int main(int argc, char **argv)
 							{
 								LIST_FOREACH(np2, &head, entries)
 								{
-									
-									
-										if(np2->w_ptr == &(np2->write))
-										{
-											strncpy(np2->write, response, MAX);
-										}
+									if(np2->w_ptr == &(np2->write))
+									{
+										strncpy(np2->write, response, MAX);
+									}
 									np2->writeable = TRUE;
 										
 								}
 
-										//write(np2->client_fd, response, MAX);
+								//write(np2->client_fd, response, MAX);
 							}
 										
-								}
-								/* If HandleMessage() returns 0, user has entered an invalid nickname. */
-							if( handle_ret == 0 )
+						}
+						/* If HandleMessage() returns 0, user has entered an invalid nickname. */
+						if( handle_ret == 0 )
+						{
+							if(np->w_ptr == &(np->write))
 							{
-								if(np->w_ptr == &(np->write))
-										{
-											strncpy(np->write, response, MAX);
-										}
-								np->writeable = TRUE;
+								strncpy(np->write, response, MAX);
 							}
+							np->writeable = TRUE;
+						}
 					}
 							
 				}		
@@ -455,10 +503,10 @@ int main(int argc, char **argv)
 			{
 				/* if fd is in writeset, then process write */
 				//int val = ((wb_space = &(np2->write[MAX]) - np2->w_ptr) > 0);
-				if(np2->writeable && FD_ISSET( np2->client_fd, &writeset) && ((wb_space = &(np2->write[MAX]) - np2->w_ptr) > 0))
+				if(np2->writeable && FD_ISSET( np2->sock, &writeset) && ((wb_space = &(np2->write[MAX]) - np2->w_ptr) > 0))
 				{
-						if((nwritten = write(np2->client_fd, np2->w_ptr, wb_space)) < 0){
-							if (errno != EWOULDBLOCK) { perror("write error on socket"); }
+						if((nwritten = SSL_write(np2->ssl, np2->w_ptr, wb_space)) < 0){
+							if (errno != SSL_ERROR_WANT_WRITE) { perror("write error on socket"); }
 						}
 					else
 					{
@@ -487,5 +535,3 @@ int main(int argc, char **argv)
 		}
 	}
 }
-
-
