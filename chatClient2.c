@@ -22,6 +22,7 @@ int				sockfd, nsockfd;					  /* listening socket 						  */
 bool 			conn_dirserver;	  		 /* is client connected to directory server? */
 char 			expected_common_name[MAX]; //the expected common name our chat server should have
 int port;
+char			s[MAX];
 
 /* Global OpenSSL variables for the chat server */
 SSL_METHOD *method; //method that will be used to connect
@@ -69,12 +70,22 @@ int HandleMessage(struct client *client_info, char * message)
 		case 'j':
 			snprintf(client_info->responseBuff, MAX, "%s", parsed_message);
 			break;
+			/* directory server sends list of servers to connect to */
 		case 'd':
-			snprintf(client_info->responseBuff, MAX, "%s", parsed_message);
+			snprintf(stdout, MAX, "%s", parsed_message);
 			break;
 		/* received chat server ip address */
 		case 'i':
-			serv_addr.sin_addr.s_addr	= inet_addr(parsed_message);
+
+			snprintf(s, MAX, "%s", parsed_message[2]);
+			char *token;
+			token = strtok(s, "|");			
+			serv_addr.sin_addr.s_addr	= inet_addr(token);
+			token = strtok(NULL, "|");
+			port = atoi(token); //FIXME
+			serv_addr.sin_port = htons(port);
+			token = strtok(NULL, "|");
+			snprintf(expected_common_name, MAX, "%s_chatServer", token);
 			break;
 		/*recieved chat server port number */
 		case 'p':
@@ -114,8 +125,6 @@ void ConnectToChatServer()
 		exit(1);
 	}
 
-	int nval = fcntl(nsockfd, F_GETFL, 0);		//Make nsockfd non blocking
-	fcntl(nsockfd, F_SETFL, nval | O_NONBLOCK);	//Make nsockfd non blocking
 
 
 	/* Connect to the directory server. */
@@ -140,6 +149,10 @@ void ConnectToChatServer()
 	SSL_set_fd(ssl, nsockfd);
 	if ( SSL_connect(ssl) == -1 )     /* perform the connection */
 		ERR_print_errors_fp(stderr);        /* report any errors */
+
+	
+	int nval = fcntl(nsockfd, F_GETFL, 0);		//Make nsockfd non blocking
+	fcntl(nsockfd, F_SETFL, nval | O_NONBLOCK);	//Make nsockfd non blocking
 
 	/* SSL: Validate the certificate if good keep connection, otherwise close connection
 	
@@ -184,6 +197,7 @@ int main()
 	int				nread;					    /* number of characters 	  					        */
 	int 			nwrite;
 
+
 	struct client *client_info = malloc(sizeof(struct client));
 	#pragma region Intializing Buffers and Pointers
 	client_info->readStartptr = client_info->readBuff;
@@ -209,9 +223,6 @@ int main()
 		exit(1);
 	}
 
-	int val = fcntl(sockfd, F_GETFL, 0);		//Make sockfd non blocking
-	fcntl(sockfd, F_SETFL, val | O_NONBLOCK);	//Make sockfd non blocking
-
 
 	/* Connect to the directory server. */
 	if (connect(sockfd, (struct sockaddr *) &dirserv_addr, sizeof(dirserv_addr)) < 0) {
@@ -233,6 +244,8 @@ int main()
 	if ( SSL_connect(directory_ssl) == -1 )     /* perform the connection */
 		ERR_print_errors_fp(stderr);
 
+int val = fcntl(sockfd, F_GETFL, 0);		//Make sockfd non blocking
+	fcntl(sockfd, F_SETFL, val | O_NONBLOCK);	//Make sockfd non blocking
 
 	/* SSL: Validate the certificate if good keep connection, otherwise close connection */
 
@@ -249,7 +262,7 @@ int main()
 		}
 	}
 
-	fprintf(stderr, "%s:%d server common name is: %s\n Expected: directory_server %s\n", __FILE__, __LINE__, directory_commonName);
+	fprintf(stderr, "%s:%d server common name is: %s\n Expected: directory_server \n", __FILE__, __LINE__, directory_commonName);
 	if(0 != strncmp(directory_commonName, "directory_server", MAX)){
 		close(sockfd);
 		exit(1);
@@ -262,11 +275,34 @@ int main()
 		
 		conn_dirserver = TRUE;
 		fprintf(stderr, "%s:%d Connection Established!\n", __FILE__, __LINE__);
-		snprintf(client_info->responseBuff, MAX, "c");
+		snprintf(client_info->responseBuff, MAX, "c,");
 		SSL_write(directory_ssl, client_info->responseBuff, MAX); //FIXME may have to do a little mutli part check here to make sure we write evrything
 		//write(sockfd, client_info->responseBuff, MAX);
 	
+	/* SSL: read from directory server */ 
+			SSL_read(directory_ssl, client_info->readBuff, MAX);
 
+			/* 1.call handle message and get all available chat servers */
+			HandleMessage(client_info, client_info->readBuff);
+			
+			/* get user input */
+			if (1 == scanf(" %99[^\n]", client_info->responseBuff)) {
+
+					snprintf(s, MAX, "r,%s", client_info->responseBuff);
+					SSL_write(ssl, s, MAX);
+			}
+
+			/*write to directory server what chat server to join*/
+
+			SSL_read(ssl, client_info->readBuff, MAX);
+
+			/*read directory server message which will contain the ip,port, and common name of chat server*/
+			HandleMessage(client_info, client_info->readBuff);
+			/*disconnect from directory server and connect chat server*/
+
+			ConnectToChatServer();
+
+	
 	for(;;) {
 
 		FD_ZERO(&readset);

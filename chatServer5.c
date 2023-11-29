@@ -246,7 +246,7 @@ int main(int argc, char **argv)
 		/* send room name to directory server */
 		//snprintf(dir_serv.room_to, MAX, "n,%s", room_name);
 		snprintf(dir_response, MAX, "n,%s", room_name);
-		SSL_write(dirSSL, dir_response, MAX);				// HW6: how should we handle these two write()?
+		SSL_write(dirSSL, dir_response, MAX);				// HW6: how should we handle these two write()?	//FIXME
 
 		/* send port number to directory server */
 		//snprintf(dir_serv.port_num_to, MAX, "p,%d", port_number);

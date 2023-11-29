@@ -102,7 +102,7 @@ int HandleMessage(char *message, struct connection_data *c_data, struct listhead
 		server_count++;
 		fprintf(stderr, "%s:%d Chat Room name: %s\n", __FILE__, __LINE__, c_data->room_name);
 		break;
-	/* connection is server and is supplying port number, set port number
+	/* connection is server and is supplying port number, set port number */
 	case 'p':
 		c_data->port_number = atoi(parsed_message);//TODO: replace atoi()?
 		fprintf(stderr, "%s:%d Port Number: %d\n", __FILE__, __LINE__, c_data->port_number);
@@ -160,14 +160,16 @@ int HandleMessage(char *message, struct connection_data *c_data, struct listhead
 						snprintf(temp, MAX, "%d. %s\n", i, cp->room_name);
 						strncat(response, temp, MAX); // append to previous lines
 					}
-					// write(c_data->conn_fd, response, MAX);//TODO: nonblocking
+
 					i++;
 				}
 			}
+
 			// snprintf(response, MAX, "c,Enter the name of the chat server you want to join: ");
 			snprintf(temp, MAX, "Enter server name to join: ");
-			strncat(response, temp, MAX); // append to server list
-			// write(c_data->conn_fd, response, MAX);//TODO: nonblocking
+			strncat(response, temp, MAX); // append to server list	
+			snprintf(c_data->sendBuff, MAX, "%s", response);
+			//FIX ME set write flag
 			return -1;
 		}
 		else
@@ -193,6 +195,8 @@ int HandleMessage(char *message, struct connection_data *c_data, struct listhead
 				// snprintf(response, MAX, "p,%i", cp->port_number);
 				snprintf(temp, MAX, "%i", cp->port_number);
 				strncat(response, temp, MAX);
+				snprintf(temp, MAX, "%s", cp->room_name);
+				strncat(response, temp, MAX);
 				// write(c_data->conn_fd, response, MAX);//TODO: nonblocking
 				return -1;
 			}
@@ -200,7 +204,7 @@ int HandleMessage(char *message, struct connection_data *c_data, struct listhead
 		return 0;
 		break;
 	default:
-		fprintf(stderr, "%s:%d Error reading from connection\n", __FILE__, __LINE__);
+		fprintf(stderr, "%s:%d Error reading from connection, got %s\n", __FILE__, __LINE__, message);
 		return -1;
 		break;
 	}
@@ -359,7 +363,7 @@ int main(int argc, char **argv)
 					/* if fd is in writeset, then process pending write */
 					if (FD_ISSET(np->conn_fd, &writeset))
 					{
-						if ((nwrite = write(np->conn_fd, np->sendptr, wb_space)) < 0)
+						if ((nwrite = SSL_write(np->ssl, np->sendptr, wb_space)) < 0) //FIXME
 						{ // TODO: change to SSL_write()
 							if (errno != EWOULDBLOCK)
 							{
@@ -414,7 +418,7 @@ int main(int argc, char **argv)
 						else
 						{
 
-							if ((nread = read(np->conn_fd, np->readptr, &(np->readBuff[MAX]) - np->readptr)) <= 0) // TODO: change to SSL_read()
+							if ((nread = SSL_read(np->ssl, np->readptr, &(np->readBuff[MAX]) - np->readptr)) <= 0) // TODO: change to SSL_read()
 							{
 								if (errno != EWOULDBLOCK)
 								{
