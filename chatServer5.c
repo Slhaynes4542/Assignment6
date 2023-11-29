@@ -219,9 +219,20 @@ int main(int argc, char **argv)
 		X509 *x509 = X509_get_subject_name(cert);
 		X509_NAME_oneline(x509, cryptbuf, 1024);
 		printf("Subject: %s\n", cryptbuf);
-		x509 = X509_CRL_get_issuer_name(cert);
-		X509_NAME_oneline(x509, cryptbuf, 1024);
-		printf("Issuer: %s\n", cryptbuf);
+
+		char dirCommonName[MAX];
+		for(int i = 0; i < 1020; i++){
+			if(cryptbuf[i] == 'C' && cryptbuf[i+1] == 'N' && cryptbuf[i+2] == '='){
+				snprintf(dirCommonName, MAX, "%s", cryptbuf + i + 3);
+				break;
+			}
+		}
+
+		fprintf(stderr, "%s:%d dir common name is: %s...\n Expected: directory_server");
+		if(0 != strncmp(dirCommonName, "directory_server", MAX)){
+			close(dir_sockfd);
+			exit(1);
+		}
 		
 		/*set up directory server struct */
 		dir_serv.ssl = dirSSL; //Modified to use the directory ssl for ssl operations
@@ -259,8 +270,7 @@ int main(int argc, char **argv)
 	snprintf(fileName, MAX, "%s_chatServer.crt", room_name);
 	SSL_CTX_use_certificate_file(cliCTX, fileName, SSL_FILETYPE_PEM);
 
-	snprintf(fileName, MAX, "%s_chatServer.key", room_name);
-	SSL_CTX_use_PrivateKey_file(cliCTX, fileName, SSL_FILETYPE_PEM);
+	SSL_CTX_use_PrivateKey_file(cliCTX, "private.key", SSL_FILETYPE_PEM);
 	
 	if(!SSL_CTX_check_private_key(cliCTX)){
 		fprintf(stderr, "Key doesn't match public certificate.\n");
