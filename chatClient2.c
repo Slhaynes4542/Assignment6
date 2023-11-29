@@ -189,7 +189,7 @@ int main()
 	client_info->readStartptr = client_info->readBuff;
 	client_info->readLocptr = client_info->readStartptr;
 	client_info->responseStartptr = client_info->responseBuff;
-	client_info->responseStartLoc = client_info->responseStartptr; //FIXME
+	client_info->responseLocptr = client_info->responseStartptr; //FIXME
 	#pragma endregion
 
 
