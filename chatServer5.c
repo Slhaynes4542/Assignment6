@@ -255,6 +255,7 @@ int main(int argc, char **argv)
 
 	}
 
+
 	/* initialize linked list */
 	LIST_INIT(&head);
 	
@@ -306,7 +307,8 @@ int main(int argc, char **argv)
 
 	/* specify that the listening socket is listening for 5 connections */
 	listen(sockfd, 5);
-
+	
+	fprintf(stderr, "%s:%d Going to select loop\n", __FILE__, __LINE__);
 	for (;;)
 	{
 
@@ -316,7 +318,7 @@ int main(int argc, char **argv)
 		FD_SET(0, &readset);
 		FD_SET(dir_sockfd, &writeset);
 		FD_SET(dir_sockfd, &readset);
-		
+		FD_SET(sockfd, &readset);
 
 		/* re-add all socket descriptors to readset */
      	LIST_FOREACH(np, &head, entries){
@@ -329,10 +331,9 @@ int main(int argc, char **argv)
 		if ((j=select(max_fd+1, &readset, &writeset, NULL, NULL)) > 0) 
 		{
 
-			
-
 			if(FD_ISSET(sockfd,&readset)) 
 			{
+				fprintf(stderr, "%s:%d Client connecting\n", __FILE__, __LINE__);
 				/* Accept a new connection request */
 				clilen = sizeof(cli_addr);
 				new_sockfd = accept(sockfd, (struct sockaddr *) &cli_addr, &clilen);
@@ -341,20 +342,23 @@ int main(int argc, char **argv)
 					exit(1);
 				}
 
-				/* Set socket as a non-blocking socket */
-				if(fcntl(new_sockfd, F_SETFL, O_NONBLOCK) < 0){
-					perror("Error setting non-blocking socket.");
-				}
+
 				
 				/* Associate SSL struct to newsock */
 				SSL *newSSL = SSL_new(cliCTX);
 				SSL_set_fd(newSSL, new_sockfd);
-				if(SSL_accept(cliSSL) <= 0) {
+				fprintf(stderr, "%s:%d CLient connected via TCP attempting SSL connection...\n", __FILE__, __LINE__);
+				if(SSL_accept(newSSL) <= 0) {
 					ERR_print_errors_fp(stderr);
 					exit(1);
 				}
 
-				printf("Client connected!");				
+								/* Set socket as a non-blocking socket */
+				if(fcntl(new_sockfd, F_SETFL, O_NONBLOCK) < 0){
+					perror("Error setting non-blocking socket.");
+				}	
+
+				printf("Client connected!\n");				
 
 			/*store client data in client data structure */
 				struct client_data *new_client = (struct client_data *)malloc(sizeof(struct client_data));
@@ -401,7 +405,7 @@ int main(int argc, char **argv)
 				LIST_FOREACH(np, &head, entries)
 				{
 					
-					if(FD_ISSET(np->sock, &readset))
+					if(FD_ISSET(np->sock, &readset) && SSL_pending(np->ssl) == 1)
 					{
 					
 						/*if read returns 0 or less, client has disconnected; Else, read message from client */

@@ -146,10 +146,15 @@ void ConnectToChatServer()
 	/* SSL: set up tls connection with chat server - get certificate */
 	ssl = SSL_new(ctx); //create a new SSL connection state with our method context
 	SSL_set_fd(ssl, nsockfd);
-	if ( SSL_connect(ssl) == -1 )     /* perform the connection */ //FIX ME Bricking on this connection, chatsever5 error?
+	fprintf(stderr, "%s:%d Attempting ssl connection to chat server...\n", __FILE__, __LINE__);
+	if ( SSL_connect(ssl) == -1 )  {   /* perform the connection */ //FIX ME Bricking on this connection, chatsever5 error?
 		ERR_print_errors_fp(stderr);        /* report any errors */
+		perror("Error connecting via SSL");
+		exit(1);
+	}
+		fprintf(stderr, "%s:%d Connected via SSL! making non blocking now\n", __FILE__, __LINE__);
 
-	
+
 	int nval = fcntl(nsockfd, F_GETFL, 0);		//Make nsockfd non blocking
 	fcntl(nsockfd, F_SETFL, nval | O_NONBLOCK);	//Make nsockfd non blocking
 
@@ -359,7 +364,7 @@ int val = fcntl(sockfd, F_GETFL, 0);		//Make sockfd non blocking
 			}
 
 			/* Check whether there's a message from the server to read */
-			if (FD_ISSET(sockfd, &readset)) 
+			if (FD_ISSET(sockfd, &readset)  && SSL_pending(ssl) == 1) 
 			{
 				
 				//if ((nread = read(sockfd, client_info->readLocptr, MAX - (client_info->readLocptr - client_info->readBuff))) <= 0) 
@@ -380,7 +385,7 @@ int val = fcntl(sockfd, F_GETFL, 0);		//Make sockfd non blocking
 			if(FD_ISSET(sockfd, &writeset)){
 				/* Send the user's message to the server */
 				//if((nwrite = write(sockfd, client_info->responseStartptr, client_info->responseLocptr - client_info->responseStartptr)) >= 0)
-				if((nwrite = SSL_write(sockfd, client_info->responseStartptr, client_info->responseLocptr - client_info->responseStartptr)) >= 0)
+				if((nwrite = SSL_write(ssl, client_info->responseStartptr, client_info->responseLocptr - client_info->responseStartptr)) >= 0)
 				{
 					client_info->responseLocptr -= nwrite; //Move back the amount of bytes we wrote from pointer, removing them from buffer
 					int bytesleft = client_info->responseLocptr - client_info->responseStartptr;
