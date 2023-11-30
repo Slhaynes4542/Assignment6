@@ -55,7 +55,7 @@ struct client
 int HandleMessage(struct client *client_info, char * message)
 {
 	char* parsed_message = message + 2; 			/* message from server without overhead */
-
+	fprintf(stderr, "%s:%d In handle message, message was: %s\n", __FILE__, __LINE__, message);
 	switch(message[0])
 	{
 		case 'n':
@@ -72,12 +72,11 @@ int HandleMessage(struct client *client_info, char * message)
 			break;
 			/* directory server sends list of servers to connect to */
 		case 'd':
-			snprintf(stdout, MAX, "%s", parsed_message);
+			printf("%s\n", parsed_message);
 			break;
 		/* received chat server ip address */
 		case 'i':
-
-			snprintf(s, MAX, "%s", parsed_message[2]);
+			snprintf(s, MAX, "%s", parsed_message);
 			char *token;
 			token = strtok(s, "|");			
 			serv_addr.sin_addr.s_addr	= inet_addr(token);
@@ -128,7 +127,7 @@ void ConnectToChatServer()
 
 
 	/* Connect to the directory server. */
-	serv_addr.sin_addr.s_addr =  inet_addr(SERV_HOST_ADDR);
+	//serv_addr.sin_addr.s_addr =  inet_addr(SERV_HOST_ADDR);
 
 	if (connect(nsockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0) {
 		perror("client: can't connect to server");
@@ -147,7 +146,7 @@ void ConnectToChatServer()
 	/* SSL: set up tls connection with chat server - get certificate */
 	ssl = SSL_new(ctx); //create a new SSL connection state with our method context
 	SSL_set_fd(ssl, nsockfd);
-	if ( SSL_connect(ssl) == -1 )     /* perform the connection */
+	if ( SSL_connect(ssl) == -1 )     /* perform the connection */ //FIX ME Bricking on this connection, chatsever5 error?
 		ERR_print_errors_fp(stderr);        /* report any errors */
 
 	
@@ -280,22 +279,34 @@ int val = fcntl(sockfd, F_GETFL, 0);		//Make sockfd non blocking
 		//write(sockfd, client_info->responseBuff, MAX);
 	
 	/* SSL: read from directory server */ 
-			SSL_read(directory_ssl, client_info->readBuff, MAX);
+		fprintf(stderr, "%s:%d Waiting for directory to send back chat servers\n", __FILE__, __LINE__);
 
+		int bytes = -1;
+		do{
+		FD_SET(sockfd, &readset);
+		select(sockfd+1, &readset, NULL, NULL, NULL);
+		bytes = SSL_read(directory_ssl, client_info->readBuff, MAX);
+		}while(((client_info->readBuff)[0] != 'd') );
+
+		fprintf(stderr, "%s:%d Recieved chat servers, message was %d bytes\n", __FILE__, __LINE__, bytes);
 			/* 1.call handle message and get all available chat servers */
-			HandleMessage(client_info, client_info->readBuff);
+		HandleMessage(client_info, client_info->readBuff);
 			
 			/* get user input */
-			if (1 == scanf(" %99[^\n]", client_info->responseBuff)) {
+		if (1 == scanf(" %99[^\n]", client_info->responseBuff)) {
 
 					snprintf(s, MAX, "r,%s", client_info->responseBuff);
-					SSL_write(ssl, s, MAX);
-			}
+					SSL_write(directory_ssl, s, MAX);
+		}
 
 			/*write to directory server what chat server to join*/
-
-			SSL_read(ssl, client_info->readBuff, MAX);
-
+			bytes = -1;
+		do{
+		FD_SET(sockfd, &readset);
+			select(sockfd+1, &readset, NULL, NULL, NULL);
+			bytes = SSL_read(directory_ssl, client_info->readBuff, MAX);
+		}while(((client_info->readBuff)[0] != 'i'));
+		fprintf(stderr, "%s:%d Recieved chat server info, message was %d bytes\n", __FILE__, __LINE__, bytes);
 			/*read directory server message which will contain the ip,port, and common name of chat server*/
 			HandleMessage(client_info, client_info->readBuff);
 			/*disconnect from directory server and connect chat server*/
