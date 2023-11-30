@@ -41,7 +41,8 @@ struct connection_data
 	LIST_ENTRY(connection_data)	entries;	/* list											*/
 	bool ssl_connected;						/* is ssl connection established?				*/
 	bool writeReady; 				/* workaround for socket stuck in writeset?		*/
-	bool message_to_send;
+	bool writeable;
+
 };
 
 LIST_HEAD(listhead, connection_data);
@@ -160,6 +161,7 @@ int HandleMessage(char *message, struct connection_data *c_data, struct listhead
 
 					i++;
 				}
+				c_data->writeable = TRUE;
 			}
 
 			// snprintf(response, MAX, "c,Enter the name of the chat server you want to join: ");
@@ -196,10 +198,13 @@ int HandleMessage(char *message, struct connection_data *c_data, struct listhead
 				snprintf(temp, MAX, "%s", cp->room_name);
 				strncat(response, temp, MAX);
 				snprintf(c_data->sendBuff, MAX, "%s", response);
+
+				c_data->writeable = TRUE;
 				break;
 				
 			}
 		}
+		
 		break;
 		//return 0;
 		break;
@@ -331,7 +336,7 @@ int main(int argc, char **argv)
 				new_conn->conn_fd = new_sockfd;
 				new_conn->ssl_connected = FALSE;
 				new_conn->writeReady = FALSE;
-				new_conn->message_to_send = FALSE;
+				new_conn->writeable = FALSE;
 				fprintf(stderr, "\nchat server ip: %s\n", new_conn->ip_address); // debug
 				fprintf(stderr, "\nconnection fd: %d\n", new_conn->conn_fd);	 // debug
 
@@ -359,7 +364,7 @@ int main(int argc, char **argv)
 				LIST_FOREACH(np, &head, entries)
 				{
 					/* if fd is in writeset, then process pending write */
-					if (FD_ISSET(np->conn_fd, &writeset) )
+					if (np->writeable && FD_ISSET(np->conn_fd, &writeset) )
 					{
 						fprintf(stderr, "In write set\n");
 						if ((nwrite = SSL_write(np->ssl, np->sendBuff, MAX)) < 0) //FIXME
@@ -369,9 +374,8 @@ int main(int argc, char **argv)
 								perror("write error on socket");
 							}
 						}
-						else
-						{
-							//nonblock pointer stuff was here
+						if(nwrite > 0){
+							np->writeable = FALSE;
 						}
 					}
 

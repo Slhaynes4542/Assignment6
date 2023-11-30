@@ -18,7 +18,7 @@
 /* Global Variables */
 bool has_nickname = FALSE;      		  /* has user entered nickname? 			  */
 struct sockaddr_in serv_addr;			  /* directory and chat server addresses 	  */
-int				sockfd, nsockfd;					  /* listening socket 						  */
+int				sockfd;					  /* listening socket 						  */
 bool 			conn_dirserver;	  		 /* is client connected to directory server? */
 char 			expected_common_name[MAX]; //the expected common name our chat server should have
 int port;
@@ -68,11 +68,11 @@ int HandleMessage(struct client *client_info, char * message)
 			break; 
 
 		case 'j':
-			snprintf(client_info->responseBuff, MAX, "%s", parsed_message);
+			snprintf( stdout, MAX, "%s\n", parsed_message);
 			break;
 			/* directory server sends list of servers to connect to */
 		case 'd':
-			printf("%s\n", parsed_message);
+			snprintf( stdout, MAX, "%s\n", parsed_message);
 			break;
 		/* received chat server ip address */
 		case 'i':
@@ -119,7 +119,7 @@ int HandleMessage(struct client *client_info, char * message)
 void ConnectToChatServer()
 {
 	/* Create a socket (an endpoint for communication). */
-	if ((nsockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+	if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
 		perror("client: can't open stream socket");
 		exit(1);
 	}
@@ -129,7 +129,7 @@ void ConnectToChatServer()
 	/* Connect to the directory server. */
 	//serv_addr.sin_addr.s_addr =  inet_addr(SERV_HOST_ADDR);
 
-	if (connect(nsockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0) {
+	if (connect(sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0) {
 		perror("client: can't connect to server");
 		exit(1);
 	}
@@ -145,7 +145,7 @@ void ConnectToChatServer()
 
 	/* SSL: set up tls connection with chat server - get certificate */
 	ssl = SSL_new(ctx); //create a new SSL connection state with our method context
-	SSL_set_fd(ssl, nsockfd);
+	SSL_set_fd(ssl, sockfd);
 	fprintf(stderr, "%s:%d Attempting ssl connection to chat server...\n", __FILE__, __LINE__);
 	if ( SSL_connect(ssl) == -1 )  {   /* perform the connection */ //FIX ME Bricking on this connection, chatsever5 error?
 		ERR_print_errors_fp(stderr);        /* report any errors */
@@ -155,8 +155,8 @@ void ConnectToChatServer()
 		fprintf(stderr, "%s:%d Connected via SSL! making non blocking now\n", __FILE__, __LINE__);
 
 
-	int nval = fcntl(nsockfd, F_GETFL, 0);		//Make nsockfd non blocking
-	fcntl(nsockfd, F_SETFL, nval | O_NONBLOCK);	//Make nsockfd non blocking
+	int nval = fcntl(sockfd, F_GETFL, 0);		//Make nsockfd non blocking
+	fcntl(sockfd, F_SETFL, nval | O_NONBLOCK);	//Make nsockfd non blocking
 
 	/* SSL: Validate the certificate if good keep connection, otherwise close connection
 	
@@ -187,7 +187,7 @@ void ConnectToChatServer()
 	fprintf(stderr, "%s:%d Chat server common name is: %s\n Expected: %s\n", __FILE__, __LINE__, common_name, expected_common_name);
 	if(0 != strncmp(common_name, expected_common_name, MAX)){
 				fprintf(stderr, "%s:%d Common name is not correct, bad cert\n", __FILE__, __LINE__);
-				close(nsockfd);
+				close(sockfd);
 	}
 
 
@@ -200,6 +200,7 @@ int main()
 	struct sockaddr_in dirserv_addr;		    /* directory server address 					        */
 	int				nread;					    /* number of characters 	  					        */
 	int 			nwrite;
+	bool			writeable;					/* is writeable?										*/
 
 
 	struct client *client_info = malloc(sizeof(struct client));
@@ -210,6 +211,7 @@ int main()
 	client_info->responseLocptr = client_info->responseStartptr; //FIXME
 	#pragma endregion
 
+	writeable = FALSE; 
 
 	/* Set up the address of the directory server to be contacted. */
 	memset((char *) &dirserv_addr, 0, sizeof(dirserv_addr));
@@ -315,6 +317,7 @@ int val = fcntl(sockfd, F_GETFL, 0);		//Make sockfd non blocking
 			/*read directory server message which will contain the ip,port, and common name of chat server*/
 			HandleMessage(client_info, client_info->readBuff);
 			/*disconnect from directory server and connect chat server*/
+			close(sockfd);
 
 			ConnectToChatServer();
 
@@ -334,26 +337,23 @@ int val = fcntl(sockfd, F_GETFL, 0);		//Make sockfd non blocking
 			if (FD_ISSET(STDIN_FILENO, &readset))
 			 {
 
-				if (1 == scanf(" %99[^\n]", client_info->responseBuff)) 
+				if (1 == scanf(" %99[^\n]", s)) 
 				{
-					/* if connected to directory server, specify chat room to join */
-					if(conn_dirserver)
-					{
-						snprintf(client_info->readBuff, MAX, "r,%s", client_info->responseBuff);
 
-					}
 					/*if haven't specified a nickname, specify nickname*/
-					else if(!has_nickname)
+					 if(!has_nickname)
 					{
-						snprintf(client_info->readBuff, MAX,"n,%s", client_info->responseBuff);	
+						snprintf(client_info->responseBuff, MAX,"n,%s", s);	
 						has_nickname = TRUE;
 					}
 					/*else, send a chat*/
 					else
 					{
-						snprintf(client_info->readBuff, MAX, "c,%s\n", client_info->responseBuff);
+						snprintf(client_info->responseBuff, MAX, "c,%s\n", s);
 						
 					}
+
+					writeable = TRUE;
 
 										
 				} 
@@ -364,16 +364,15 @@ int val = fcntl(sockfd, F_GETFL, 0);		//Make sockfd non blocking
 			}
 
 			/* Check whether there's a message from the server to read */
-			if (FD_ISSET(sockfd, &readset)  && SSL_pending(ssl) == 1) 
+			if (FD_ISSET(sockfd, &readset)) 
 			{
 				
 				//if ((nread = read(sockfd, client_info->readLocptr, MAX - (client_info->readLocptr - client_info->readBuff))) <= 0) 
-				if((nread = SSL_read(ssl, client_info->readLocptr, MAX - (client_info->readLocptr - client_info->readBuff)))  <= 0)
-				{
-					printf("Error reading from server\n");
-					exit(0);
-				} 
-				else 
+				nread = SSL_read(ssl, client_info->readLocptr, MAX - (client_info->readLocptr - client_info->readBuff));
+			
+				
+				
+				if(nread > 0)
 				{
 					/* handle response from server */
 					 HandleMessage(client_info, client_info->readBuff);
@@ -382,17 +381,18 @@ int val = fcntl(sockfd, F_GETFL, 0);		//Make sockfd non blocking
 				}
 			}
 
-			if(FD_ISSET(sockfd, &writeset)){
+			if(FD_ISSET(sockfd, &writeset) && writeable){
 				/* Send the user's message to the server */
 				//if((nwrite = write(sockfd, client_info->responseStartptr, client_info->responseLocptr - client_info->responseStartptr)) >= 0)
-				if((nwrite = SSL_write(ssl, client_info->responseStartptr, client_info->responseLocptr - client_info->responseStartptr)) >= 0)
+				if((nwrite = SSL_write(ssl, client_info->responseBuff, MAX)) > 0)
 				{
 					client_info->responseLocptr -= nwrite; //Move back the amount of bytes we wrote from pointer, removing them from buffer
 					int bytesleft = client_info->responseLocptr - client_info->responseStartptr;
 					for(int i = 0; i < bytesleft; i++){
 						client_info->responseStartptr[i] = client_info->responseStartptr[nwrite + i];
 					} //iterate through the bytes left in buffer to move them back the same amount of bytes we've written (nwrite)
-					client_info->messageToSend = FALSE;
+					//client_info->messageToSend = FALSE;
+					writeable = FALSE;
 				}
 
 			}

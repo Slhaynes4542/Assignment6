@@ -59,7 +59,7 @@ int HandleMessage(char * message, struct client_data* c_data, struct listhead he
 	struct client_data * cp;						/* pointer for traversing client data */
 	bool	unique_nickname = TRUE;			   		/* is the nickname specified unique?  */
 
-
+fprintf(stderr, "%s:%d In handle message, message was: %s\n", __FILE__, __LINE__, message);
 	switch(message[0])
 	{
 		/*if first character is an 'n', process nickname */ 
@@ -405,11 +405,11 @@ int main(int argc, char **argv)
 				LIST_FOREACH(np, &head, entries)
 				{
 					
-					if(FD_ISSET(np->sock, &readset) && SSL_pending(np->ssl) == 1)
+					if(FD_ISSET(np->sock, &readset))
 					{
 					
 						/*if read returns 0 or less, client has disconnected; Else, read message from client */
-						if ((nread = SSL_read(np->ssl, np->r_ptr, &(np->read[MAX]) - np->r_ptr)) <= 0) 
+						if ((nread = SSL_read(np->ssl, np->read, MAX)) < 0) 
 						{	
 							/* error checking */
 							if(errno != SSL_ERROR_WANT_READ)
@@ -438,19 +438,12 @@ int main(int argc, char **argv)
 							}	
 							
 						}
-						/* if n is greater than 0, we've read in n bytes. Update read_ptr. */
-						else if(nread > 0){
-							np->r_ptr += nread; 
-						}
+						
 						/*if the r_ptr is equal to the the MAX address of the read buffer, we have the entire message. Proceed with handling message.*/
-						if(np->r_ptr == &(np->read[MAX]))
+						if(nread > 0)
 						{
 							/* handle message */
 							handle_ret = HandleMessage(np->read, np, head);
-
-							/* reset r_ptr and clear read buffer */ 
-							memset(np->read, 0, MAX);
-							np->r_ptr = &(np->read);
 							
 							/* If HandleMessage() return 1, then broadcast message to all clients except the sender. */
 							if(handle_ret == 1)
@@ -472,10 +465,7 @@ int main(int argc, char **argv)
 						/* If HandleMessage() returns 0, user has entered an invalid nickname. */
 						if( handle_ret == 0 )
 						{
-							if(np->w_ptr == &(np->write))
-							{
-								strncpy(np->write, response, MAX);
-							}
+							strncpy(np->write, response, MAX);
 							np->writeable = TRUE;
 						}
 					}
@@ -488,32 +478,18 @@ int main(int argc, char **argv)
 			{
 				/* if fd is in writeset, then process write */
 				//int val = ((wb_space = &(np2->write[MAX]) - np2->w_ptr) > 0);
-				if(np2->writeable && FD_ISSET( np2->sock, &writeset) && ((wb_space = &(np2->write[MAX]) - np2->w_ptr) > 0))
+				if(np2->writeable && FD_ISSET( np2->sock, &writeset))
 				{
-						if((nwritten = SSL_write(np2->ssl, np2->w_ptr, wb_space)) < 0){
+						if((nwritten = SSL_write(np2->ssl, np2->write, MAX)) < 0){
 							if (errno != SSL_ERROR_WANT_WRITE) { perror("write error on socket"); }
 						}
-					else
+					if(nwritten > 0)
 					{
-						/*increment write buffer pointer */
-						np2->w_ptr += nwritten;
-						
-						/* check if entire message has been written. If so, clear write buffer, reset w_ptr, and set the writable flag to false */
-						if(&(np2->write[MAX]) == np2->w_ptr){
 
 							/* clear write buffer */
 							memset(np2->write, 0, MAX);
-
-							/* reset w_ptr */
-							np2->w_ptr = &(np2->write); 
-
 							/* set writable flag to false */
 							np2->writeable = FALSE;
-
-						}
-						else{
-							np2->writeable = TRUE;
-						}
 					}
 				}
 			}
