@@ -1,15 +1,12 @@
 #
-# Makefile for chat server
+# Makefile for TLS-enabled chat client, server, and directory server
 #
-# LIBS	= -lsocket -lnsl
 CC	= gcc
-EXECUTABLES=chatClient1 chatServer1 chatClient2 chatServer5 directoryServer2
+EXECUTABLES=chatClient5 chatServer5 directoryServer5
 INCLUDES= $(wildcard *.h)
 SOURCES = $(wildcard *.c)
 DEPS	= $(INCLUDES)
 OBJECTS = $(SOURCES:.c=.o)
-OBJECTS  += $(SOURCES:.c=.dSYM)
-LIBS	=
 LDFLAGS =
 CFLAGS	= -g -ggdb -std=c99 -Wc++-compat -Wmain \
 		-Wignored-qualifiers -Wshift-negative-value \
@@ -19,28 +16,25 @@ CFLAGS	= -g -ggdb -std=c99 -Wc++-compat -Wmain \
 #CFLAGS += -ggdb3
 #CFLAGS += -Wc99-c11-compat -Wformat-truncation=2 -Wformat-overflow -Wformat-signedness
 
-all:    chat2
+# Uncomment the LIBS line below containing the library that you're using
+#LIBS	= -lcrypto -lgnutls
+LIBS	+= -lcrypto -lssl
 
-chat2:	chatClient2 chatServer5 directoryServer2
+all:	tls
 
+tls:	$(EXECUTABLES)
 
-chatClient1: chatClient1.c $(DEPS)
-	$(CC) $(LDFLAGS) $(CFLAGS) $(LIBS) -o $@ $<
-
-chatServer1: chatServer1.c $(DEPS)
-	$(CC) $(LDFLAGS) $(CFLAGS) $(LIBS) -o $@ $<
-
-chatClient2: chatClient2.c $(DEPS)
-	$(CC) $(LDFLAGS) $(CFLAGS) $(LIBS) -o $@ $< -lssl -lcrypto
+chatClient5: chatClient5.c $(DEPS)
+	$(CC) $(LDFLAGS) $(CFLAGS) $(INCLUDES) $(LDFLAGS) -o $@ $< $(LIBS)
 
 chatServer5: chatServer5.c $(DEPS)
-	$(CC) $(LDFLAGS) $(CFLAGS) $(LIBS) -o $@ $< -lssl -lcrypto
+	$(CC) $(LDFLAGS) $(CFLAGS) $(INCLUDES) $(LDFLAGS) -o $@ $< $(LIBS)
 
-directoryServer2: directoryServer2.c $(DEPS)
-	$(CC) $(LDFLAGS) $(CFLAGS) $(LIBS) -o $@ $< -lssl -lcrypto
+directoryServer5: directoryServer5.c $(DEPS)
+	$(CC) $(LDFLAGS) $(CFLAGS) $(INCLUDES) $(LDFLAGS) -o $@ $< $(LIBS)
 
 
 # Clean up the mess we made
 .PHONY: clean
 clean:
-	@-rm -rf $(OBJECTS) $(EXECUTABLES)
+	@-rm -f $(OBJECTS) $(EXECUTABLES)
