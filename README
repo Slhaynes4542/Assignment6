@@ -1,18 +1,42 @@
+---------To make and run--------------
+1. type 'make' to make all the files
+2. type './directoryServer5' to run the directory server
+3. type './chatServer5 topic port' to run a chat server
+   valid topics are 'TV' and 'sports'. These need to be typed with exact matching spelling and case.
+   There are three certs, one for the directory and two for those different chat servers
+4. type './chatClient5' to run a chat client
+--------------------------------------
 
-1. Copy the files to your own directory.
+--------Directory Server 5-----------
+The directory server uses TLS with all connections with nonblocking sockets in order to fufill its requirements.
+It uses OpenSSL to do this with its directory_server.crt that is self signed by a password-less private key.
+The server waits for a connection, it connects, does the SSL handshake, then begins communication.
+If it is a chatServer it gets the relevent chatServer information and holds it in memory.
+If it is a chatClient it sends all the names of chat servers, and then when the chatClient asks for a server to join it sends the specific info for that server
+-------------------------------------
 
-2. Modify inet.h to reflect the host you are currently logged into.
-   Also, modify the port numbers to be used to reduce the likelihood
-   of conflicting with another server.
+-------Chat Server 5 ----------------
+The chat server first connects to the directory server via TLS and verifies the servers cert and common name held in the cert.
+Once verified it sends its information to the directory server.
+Then it waits for clients to join.
+When a client joins it does an openSSL handshake to set up a TLS connection.
+It follows standard functionality after, setting nicknames for clients when they first get in, and then pass messages on to all other clients.
+**Limitations**
+ - If a server name is entered other then TV or sports the server will not start. This is due to only have a couple certificate files
+-------------------------------------
 
-3. Compile the source code using the command: make
+-------Chat Client 5-----------------
+The chat client first goes and joins the directory server via TLS.
+It verifies the certificate and the common name, then asks for a list of chat severs.
+The user enters the chat server they want to join (by name), then the directory server responds with the information.
+Then the user joins the chat server and uses the common name given to them from the directory server to verify the certificate the chat server sends them.
+Once joined via TLS the user sets their nickname and then can send and recive messages as normal
+**Limitations**
+ - If the user enters in a server not on the list they do not join anything
+-------------------------------------
 
-4. Start the directory server: ./directoryServer2
-
-5. Start the chat server. The chat server takes two arguments. The first is the chat room name, and the second is the port number : ./chatServer2 [arg1] [arg2]
-
-5. Start the client on the same or another host in the foreground: ./chatClient2
-
-6. Remember to kill the server before logging off.
-
-
+-------Certificates------------------
+The certificates were made via OpenSSL.
+They use private.key, which is a key made from stripping the password from domain.key (password is password).
+They are self signed with the private key and the name of the key is the chat room name + +_chatServer.crt
+-------------------------------------
