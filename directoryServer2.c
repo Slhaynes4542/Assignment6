@@ -24,27 +24,23 @@ enum connection_type
 };
 
 /* global variables */
-char response[MAX];											 /* response to send to clients  	*/
-int server_count = 0; /* number of chat servers connected */ // probaby unneeded as global
+char response[MAX];		/* response to send to clients  	*/
+int server_count = 0;	/* number of chat servers connected */ // probaby unneeded as global
 
 /*client Data structure (linked list)*/
 struct connection_data
 {
-	int conn_fd;					  /* socket															*/
-	SSL *ssl;						  /* SSL endpoint														*/
-	enum connection_type type;		  /* Server or Client Connection										*/
-	char room_name[MAX];			  /* string holding room name(Server only)							*/
-	char ip_address[INET_ADDRSTRLEN]; /* Ip Address(Server only)											*/
-	int port_number;				  /* Port num(Server only)											*/
-	char sendBuff[MAX];				  /* send buffer														*/
-	char readBuff[MAX];				  /* read buffer														*/
-	char *sendptr;					  /* pointer that it the start of the send buffer						*/
-	char *sendIndexptr;				  /* pointer that points to where we are at so far in the send buff	*/
-	char *readptr;					  /* pointer that is at the start of the read buffer					*/
-	char *readIndexptr;				  /* pointer that points to where we are so far in the read buff		*/
-	LIST_ENTRY(connection_data)
-	entries;			/* list																*/
-	bool ssl_connected; /* is ssl connection established?									*/
+	int conn_fd;							/* socket										*/
+	SSL *ssl;								/* SSL endpoint									*/
+	enum connection_type type;				/* Server or Client Connection					*/
+	char room_name[MAX];					/* string holding room name(Server only)		*/
+	char ip_address[INET_ADDRSTRLEN];		/* Ip Address(Server only)						*/
+	int port_number;						/* Port num(Server only)						*/
+	char sendBuff[MAX];						/* send buffer									*/
+	char readBuff[MAX];						/* read buffer									*/
+	LIST_ENTRY(connection_data)	entries;	/* list											*/
+	bool ssl_connected;						/* is ssl connection established?				*/
+	bool writeReady = false;				/* workaround for socket stuck in writeset?		*/
 };
 
 LIST_HEAD(listhead, connection_data);
@@ -126,13 +122,13 @@ int HandleMessage(char *message, struct connection_data *c_data, struct listhead
 				c_data->port_number = atoi(tok);													 // TODO: replace atoi()?
 				fprintf(stderr, "%s:%d Port Number: %d\n", __FILE__, __LINE__, c_data->port_number); // debug
 			}
-			else
+			else //no port number
 			{
 				fprintf(stderr, "%s:%d Error reading Chat Server Port Number.\n", __FILE__, __LINE__); // debug
 				exit(1);
 			}
 		}
-		else
+		else //no ip recieved/nothing recieved
 		{
 			fprintf(stderr, "%s:%d Error reading Chat Server IP.\n", __FILE__, __LINE__); // debug
 			exit(1);
@@ -189,7 +185,6 @@ int HandleMessage(char *message, struct connection_data *c_data, struct listhead
 				/* send chat server ip address */
 				memset(response, 0, sizeof(response));
 				snprintf(response, MAX, "i,%s|", cp->ip_address);
-				// write(c_data->conn_fd, response, MAX);//TODO: nonblocking
 				/* send chat server port number */
 				// memset(response, 0, sizeof(response));
 				// snprintf(response, MAX, "p,%i", cp->port_number);
@@ -197,7 +192,6 @@ int HandleMessage(char *message, struct connection_data *c_data, struct listhead
 				strncat(response, temp, MAX);
 				snprintf(temp, MAX, "%s", cp->room_name);
 				strncat(response, temp, MAX);
-				// write(c_data->conn_fd, response, MAX);//TODO: nonblocking
 				return -1;
 			}
 		}
@@ -221,12 +215,11 @@ int main(int argc, char **argv)
 	fd_set writeset; /* set of file descriptors (sockets) available to write */
 	int max_fd = 0;	 /* maximum file descriptor in readset 					*/
 	int j, nread, nwrite;
-	int wb_space;				   /* available write buffer space							*/
 	struct listhead head;		   /* head of linked list containing client data			*/
 	struct connection_data *c_ptr; /* pointers to client data 								*/
 	struct connection_data *np;	   /* pointer used for traversing list         		    */
 	struct connection_data *np2;   /* pointer used for traversing list   					*/
-	int conn_count = 0;			   /* number of clients connected to the server 			*/
+	//int conn_count = 0;			   /* number of clients connected to the server 			*/
 	int handle_ret;				   /* return value for HandleMessage() 					*/
 	char ip_add[INET_ADDRSTRLEN];  /* string to store an ip address						*/
 	SSL *ssl;					   /* ssl var */
@@ -260,13 +253,13 @@ int main(int argc, char **argv)
 	/************************************************************/
 	/*** Initialize Server SSL state                          ***/
 	/************************************************************/
-	SSL_METHOD *method; /* SSL method */
-	SSL_CTX *ctx;
-	OpenSSL_add_all_algorithms();	 /* Load cryptos, et.al. */
-	SSL_load_error_strings();		 /* Load/register error msg */
-	method = SSLv23_server_method(); /* Create new server-method */
+	SSL_METHOD *method;					/* SSL method */
+	SSL_CTX *ctx;						/* SSL context */
+	OpenSSL_add_all_algorithms();		/* Load cryptos, et.al. */
+	SSL_load_error_strings();			/* Load/register error msg */
+	method = SSLv23_server_method();	/* Create new server-method */
 	// method = SSLv3_server_method();
-	ctx = SSL_CTX_new(method); /* Create new context */
+	ctx = SSL_CTX_new(method);			/* Create new context */
 
 	/* Load certificate and private key files */
 	SSL_CTX_use_certificate_file(ctx, "directory_server.crt", SSL_FILETYPE_PEM); /* set the local certificate from CertFile */
@@ -284,13 +277,14 @@ int main(int argc, char **argv)
 		fflush(stdout);
 		FD_ZERO(&readset);
 		FD_ZERO(&writeset);
-		FD_SET(0, &readset);
+		//FD_SET(0, &readset);
 		FD_SET(sockfd, &readset);
 
 		/* re-add all socket descriptors to readset */
 		LIST_FOREACH(np, &head, entries)
 		{
 			FD_SET(np->conn_fd, &readset);
+			//TODO: check if np->writeReady, then add to writeset?
 		}
 
 		/* see if any descriptors are ready to be read, wait forever. */
@@ -326,17 +320,13 @@ int main(int argc, char **argv)
 				strncpy(new_conn->ip_address, ip_add, INET_ADDRSTRLEN);
 				/*init buffer pointers*/
 				new_conn->conn_fd = new_sockfd;
-				new_conn->readptr = new_conn->readBuff;
-				new_conn->readIndexptr = new_conn->readBuff;
-				new_conn->sendptr = new_conn->sendBuff;
-				new_conn->sendIndexptr = new_conn->sendBuff;
 				new_conn->ssl_connected = FALSE;
 				fprintf(stderr, "\nchat server ip: %s\n", new_conn->ip_address); // debug
 				fprintf(stderr, "\nconnection fd: %d\n", new_conn->conn_fd);	 // debug
 
 				
 				/* if connection is the first connection, make this connection the head of the linked list; else, add connection to end of list */
-				if (conn_count == 0) // TODO: change to check for null list, get rid of conn_count var
+				if (LIST_EMPTY(head))//returns true if list is empty
 				{
 					LIST_INSERT_HEAD(&head, new_conn, entries);
 					c_ptr = new_conn;
@@ -346,9 +336,6 @@ int main(int argc, char **argv)
 					LIST_INSERT_AFTER(c_ptr, new_conn, entries);
 					c_ptr = new_conn;
 				}
-
-				/*increment connection count */
-				conn_count++;
 				/*update max file descriptor */
 				if (max_fd < new_sockfd)
 				{
@@ -363,64 +350,50 @@ int main(int argc, char **argv)
 					/* if fd is in writeset, then process pending write */
 					if (FD_ISSET(np->conn_fd, &writeset))
 					{
-						if ((nwrite = SSL_write(np->ssl, np->sendptr, wb_space)) < 0) //FIXME
+						if ((nwrite = SSL_write(np->ssl, np->sendBuff, MAX)) < 0) //FIXME
 						{ // TODO: change to SSL_write()
-							if (errno != EWOULDBLOCK)
+							if (errno != EWOULDBLOCK)//TODO: replace with ssl error checks
 							{
 								perror("write error on socket");
 							}
 						}
 						else
 						{
-							/*increment write buffer pointer */
-							np->sendptr += nwrite;
-
-							/* check if entire message has been written */
-							if (&(np->sendBuff[MAX]) == np->sendptr)
-							{
-								memset(np->sendBuff, 0, MAX);
-								np->sendptr = &(np->sendBuff[0]);
-							}
-							else
-							{
-								// FD_SET(np2->conn_fd, &writeset);
-							}
+							//nonblock pointer stuff was here
 						}
 					}
 
 					/*process reads*/
 					if (FD_ISSET(np->conn_fd, &readset))
 					{
-
 						if (!np->ssl_connected)
 						{
 							/*** Create SSL session state based on context & SSL_accept */
-											np->ssl = SSL_new(ctx); /* init SSL state using context		*/
-											if (!np->ssl)
-											{
-												perror("directory: unable to create dir SSL struct");
-												exit(1);
-											}
+							np->ssl = SSL_new(ctx); /* init SSL state using context		*/
+							if (!np->ssl)
+							{
+								perror("directory: unable to create dir SSL struct");
+								exit(1);
+							}
 
-											SSL_set_fd(np->ssl, np->conn_fd); /* associate SSL state with socket	*/
-											if (SSL_accept(np->ssl) == 0)
-											{
-												ERR_print_errors_fp(stderr);
-											}
+							SSL_set_fd(np->ssl, np->conn_fd); /* associate SSL state with socket	*/
+							if (SSL_accept(np->ssl) == 0)
+							{
+								ERR_print_errors_fp(stderr);
+							}
 
-											/*set new socket as nonblocking*/
-											if (fcntl(np->conn_fd, F_SETFL, O_NONBLOCK) < 0)
-											{
-												perror("Error setting non-blocking socket.");
-											}
-											np->ssl_connected = TRUE;
+							/*set new socket as nonblocking*/
+							if (fcntl(np->conn_fd, F_SETFL, O_NONBLOCK) < 0)
+							{
+								perror("Error setting non-blocking socket.");
+							}
+							np->ssl_connected = TRUE;
 						}
 						else
 						{
-
-							if ((nread = SSL_read(np->ssl, np->readptr, &(np->readBuff[MAX]) - np->readptr)) <= 0) // TODO: change to SSL_read()
+							if ((nread = SSL_read(np->ssl, np->readBuff, MAX)) <= 0)
 							{
-								if (errno != EWOULDBLOCK)
+								if (errno != EWOULDBLOCK)//TODO: change to ssl errorchecking
 								{
 									perror("read error from socket");
 									if (FD_ISSET(np->conn_fd, &readset) && FD_ISSET(np->conn_fd, &writeset))
@@ -436,7 +409,6 @@ int main(int argc, char **argv)
 										LIST_REMOVE(np, entries);
 										close(np->conn_fd);
 										free(np);
-										conn_count--;
 										/* set c_ptr to the end of the list */
 										LIST_FOREACH(np2, &head, entries)
 										{
@@ -458,27 +430,22 @@ int main(int argc, char **argv)
 							}
 							else
 							{ // nread > 0
-								handle_ret = HandleMessage(np->readptr, np, head);
+								handle_ret = HandleMessage(np->readBuff, np, head);
 
 								/* If HandleMessage() return 1, then stage response */
 								if (handle_ret == 1)
 								{
-									if (np->sendptr == &(np->sendBuff[0])) // TODO:verify this is correct
-									{
-										strncpy(np->sendptr, response, MAX);
-									}
-									// FD_SET(np->conn_fd, &writeset);//moved before select
+									strncpy(np->sendBuff, response, MAX);
 								}
 								/* if HandleMessage() return 0, client entered invalid chat room name */
-								if (handle_ret == 0)
+								else if (handle_ret == 0)
 								{
-									snprintf(response, MAX, "v,Enter the name of the chat server you want to join:");
-									if (np->sendptr == &(np->sendBuff[0])) // TODO:verify this is correct
-									{
-										strncpy(np->sendptr, response, MAX);
-									}
-									// FD_SET(np->conn_fd, &writeset);
-									// write(np->conn_fd, response, MAX);
+									snprintf(response, MAX, "v,Enter the name of the chat server you want to join:");//TODO: Move this to HandleMessage()?
+									strncpy(np->sendBuff, response, MAX);
+								}
+								else{
+									fprintf(stderr, "%s:%d Invalid return from HandleMessage\n", __FILE__, __LINE__);
+									exit(1);
 								}
 							}
 						}
