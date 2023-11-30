@@ -55,7 +55,7 @@ char 				ip_address[INET_ADDRSTRLEN];	 /* ip address for this server 							*/
 
 int HandleMessage(char * message, struct client_data* c_data, struct listhead head)
 {
-	char* parsed_message = message + 1; 			/* user message with no overhead      */
+	char* parsed_message = message + 2; 			/* user message with no overhead      */
 	struct client_data * cp;						/* pointer for traversing client data */
 	bool	unique_nickname = TRUE;			   		/* is the nickname specified unique?  */
 
@@ -68,7 +68,7 @@ int HandleMessage(char * message, struct client_data* c_data, struct listhead he
 			LIST_FOREACH(cp, &head, entries)
 			{
 				/* check for duplicate nicknames, set flag */
-				if(strncmp(cp->client_name, parsed_message, MAX) == 0 )
+				if(strcmp(cp->client_name, parsed_message) == 0 )
 				{
 					unique_nickname = FALSE;
 				}
@@ -80,13 +80,13 @@ int HandleMessage(char * message, struct client_data* c_data, struct listhead he
 					snprintf(c_data->client_name, MAX, "%s", parsed_message);
 
 					/*generate response */
-					snprintf(response, MAX, "j%s has joined the chat.", parsed_message);			
+					snprintf(response, MAX, "j,%s has joined the chat.", parsed_message);			
 					return 1;
 			}
 			else
 			{
 				/*generate response */
-				snprintf(response, MAX, "nNickname already exists. Please enter unique nickname: ");
+				snprintf(response, MAX, "n,Nickname already exists. Please enter unique nickname: ");
 				return 0;
 			}
 		break;
@@ -94,7 +94,7 @@ int HandleMessage(char * message, struct client_data* c_data, struct listhead he
 		/*if first character is a 'c', process chat */
 		case 'c':
 			/*generate response */
-			snprintf(response, MAX, "c%s : %s", c_data->client_name, parsed_message);
+			snprintf(response, MAX, "c,%s : %s", c_data->client_name, parsed_message);
 			return 1;
 		break;
 		/*if first character is a 'd',chat room successful */
@@ -155,7 +155,7 @@ int main(int argc, char **argv)
 	}
 	else{
 		snprintf(room_name, MAX, argv[1]);
-		sscanf(argv[2], "%d", &port_number);
+		port_number = atoi(argv[2]);
 	}
 
 	/* Init SSL */
@@ -245,12 +245,12 @@ int main(int argc, char **argv)
 
 		/* send room name to directory server */
 		//snprintf(dir_serv.room_to, MAX, "n,%s", room_name);
-		snprintf(dir_response, MAX, "n%s", room_name);
+		snprintf(dir_response, MAX, "n,%s", room_name);
 		SSL_write(dirSSL, dir_response, MAX);				// HW6: how should we handle these two write()?	//FIXME
 
 		/* send port number to directory server */
 		//snprintf(dir_serv.port_num_to, MAX, "p,%d", port_number);
-		snprintf(dir_response, MAX, "p%d", port_number);
+		snprintf(dir_response, MAX, "p,%d", port_number);
 		SSL_write(dirSSL, dir_response, MAX);
 
 	}
@@ -336,7 +336,7 @@ int main(int argc, char **argv)
 				/* Accept a new connection request */
 				clilen = sizeof(cli_addr);
 				new_sockfd = accept(sockfd, (struct sockaddr *) &cli_addr, &clilen);
-				if (0 > new_sockfd) {
+				if (new_sockfd < 0) {
 					perror("server: accept error");
 					exit(1);
 				}
@@ -365,11 +365,11 @@ int main(int argc, char **argv)
 				new_client->w_ptr = &(new_client->write);
 				//fprintf(stderr, "\nclient fd: %d\n", (int)(new_client->ssl));
 				/* if client is the first client, make this client the head of the linked list and announce event; else, add client to end of list */
-				if(0 == client_count)
+				if(client_count == 0 )
 				{
 					LIST_INSERT_HEAD(&head, new_client, entries); 
 					c_ptr = new_client;
-					snprintf(response, MAX, "jYou are the first to join the chat!\nPlease Enter a nickname:");
+					snprintf(response, MAX, "j,You are the first to join the chat!\nPlease Enter a nickname:");
 					snprintf(new_client->write, MAX, response);
 					new_client->writeable = TRUE;
 				}
@@ -412,7 +412,7 @@ int main(int argc, char **argv)
 							{ 
 								perror("read error on socket"); 
 							}
-							else if(0 == nread)
+							else if( nread == 0)
 							{
 								fprintf(stderr, "%s:%d: EOF on socket\n", __FILE__, __LINE__);
 							}
@@ -435,7 +435,7 @@ int main(int argc, char **argv)
 							
 						}
 						/* if n is greater than 0, we've read in n bytes. Update read_ptr. */
-						else if(0 < nread){
+						else if(nread > 0){
 							np->r_ptr += nread; 
 						}
 						/*if the r_ptr is equal to the the MAX address of the read buffer, we have the entire message. Proceed with handling message.*/
@@ -449,7 +449,7 @@ int main(int argc, char **argv)
 							np->r_ptr = &(np->read);
 							
 							/* If HandleMessage() return 1, then broadcast message to all clients except the sender. */
-							if(1 == handle_ret)
+							if(handle_ret == 1)
 							{
 								LIST_FOREACH(np2, &head, entries)
 								{
@@ -466,7 +466,7 @@ int main(int argc, char **argv)
 										
 						}
 						/* If HandleMessage() returns 0, user has entered an invalid nickname. */
-						if(0 == handle_ret)
+						if( handle_ret == 0 )
 						{
 							if(np->w_ptr == &(np->write))
 							{
