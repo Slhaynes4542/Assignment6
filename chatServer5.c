@@ -373,7 +373,7 @@ int main(int argc, char **argv)
 				{
 					LIST_INSERT_HEAD(&head, new_client, entries); 
 					c_ptr = new_client;
-					snprintf(response, MAX, "j,You are the first to join the chat!\nPlease Enter a nickname:");
+					snprintf(response, MAX, "j,You are the first to join the chat!\nPlease Enter a nickname:\n\0");
 					snprintf(new_client->write, MAX, response);
 					new_client->writeable = TRUE;
 				}

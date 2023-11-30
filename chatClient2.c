@@ -55,7 +55,6 @@ struct client
 int HandleMessage(struct client *client_info, char * message)
 {
 	char* parsed_message = message + 2; 			/* message from server without overhead */
-	fprintf(stderr, "%s:%d In handle message, message was: %s\n", __FILE__, __LINE__, message);
 	switch(message[0])
 	{
 		case 'n':
@@ -64,15 +63,19 @@ int HandleMessage(struct client *client_info, char * message)
 			break;
 
 		case 'c':
-			snprintf(client_info->responseBuff, MAX, "%s", parsed_message);
+			snprintf( s, MAX, "%s", parsed_message);
+						printf( "%s\n", s);
 			break; 
 
 		case 'j':
-			snprintf( stdout, MAX, "%s\n", parsed_message);
+			snprintf( s, MAX, "%s", parsed_message);
+						printf( "%s\n", s);
 			break;
 			/* directory server sends list of servers to connect to */
 		case 'd':
-			snprintf( stdout, MAX, "%s\n", parsed_message);
+			
+			snprintf( s, MAX, "%s", parsed_message);
+			printf( "%s\n", s);
 			break;
 		/* received chat server ip address */
 		case 'i':
@@ -146,13 +149,11 @@ void ConnectToChatServer()
 	/* SSL: set up tls connection with chat server - get certificate */
 	ssl = SSL_new(ctx); //create a new SSL connection state with our method context
 	SSL_set_fd(ssl, sockfd);
-	fprintf(stderr, "%s:%d Attempting ssl connection to chat server...\n", __FILE__, __LINE__);
 	if ( SSL_connect(ssl) == -1 )  {   /* perform the connection */ //FIX ME Bricking on this connection, chatsever5 error?
 		ERR_print_errors_fp(stderr);        /* report any errors */
 		perror("Error connecting via SSL");
 		exit(1);
 	}
-		fprintf(stderr, "%s:%d Connected via SSL! making non blocking now\n", __FILE__, __LINE__);
 
 
 	int nval = fcntl(sockfd, F_GETFL, 0);		//Make nsockfd non blocking
@@ -183,8 +184,7 @@ void ConnectToChatServer()
 		}
 	}
 
-	//DEBUG
-	fprintf(stderr, "%s:%d Chat server common name is: %s\n Expected: %s\n", __FILE__, __LINE__, common_name, expected_common_name);
+
 	if(0 != strncmp(common_name, expected_common_name, MAX)){
 				fprintf(stderr, "%s:%d Common name is not correct, bad cert\n", __FILE__, __LINE__);
 				close(sockfd);
@@ -268,14 +268,11 @@ int val = fcntl(sockfd, F_GETFL, 0);		//Make sockfd non blocking
 		}
 	}
 
-	fprintf(stderr, "%s:%d server common name is: %s\n Expected: directory_server \n", __FILE__, __LINE__, directory_commonName);
 	if(0 != strncmp(directory_commonName, "directory_server", MAX)){
 		close(sockfd);
 		exit(1);
 	}
 	
-
-
 
 	/* Once connection is established, immediately send a message to the directory server indicating this is a chat client*/
 		
@@ -286,7 +283,7 @@ int val = fcntl(sockfd, F_GETFL, 0);		//Make sockfd non blocking
 		//write(sockfd, client_info->responseBuff, MAX);
 	
 	/* SSL: read from directory server */ 
-		fprintf(stderr, "%s:%d Waiting for directory to send back chat servers\n", __FILE__, __LINE__);
+	
 
 		int bytes = -1;
 		do{
@@ -295,9 +292,10 @@ int val = fcntl(sockfd, F_GETFL, 0);		//Make sockfd non blocking
 		bytes = SSL_read(directory_ssl, client_info->readBuff, MAX);
 		}while(((client_info->readBuff)[0] != 'd') );
 
-		fprintf(stderr, "%s:%d Recieved chat servers, message was %d bytes\n", __FILE__, __LINE__, bytes);
+
 			/* 1.call handle message and get all available chat servers */
 		HandleMessage(client_info, client_info->readBuff);
+		memset(client_info->readBuff, 0, MAX);
 			
 			/* get user input */
 		if (1 == scanf(" %99[^\n]", client_info->responseBuff)) {
@@ -313,9 +311,9 @@ int val = fcntl(sockfd, F_GETFL, 0);		//Make sockfd non blocking
 			select(sockfd+1, &readset, NULL, NULL, NULL);
 			bytes = SSL_read(directory_ssl, client_info->readBuff, MAX);
 		}while(((client_info->readBuff)[0] != 'i'));
-		fprintf(stderr, "%s:%d Recieved chat server info, message was %d bytes\n", __FILE__, __LINE__, bytes);
 			/*read directory server message which will contain the ip,port, and common name of chat server*/
 			HandleMessage(client_info, client_info->readBuff);
+			memset(client_info->readBuff,0,MAX);
 			/*disconnect from directory server and connect chat server*/
 			close(sockfd);
 
@@ -376,8 +374,9 @@ int val = fcntl(sockfd, F_GETFL, 0);		//Make sockfd non blocking
 				{
 					/* handle response from server */
 					 HandleMessage(client_info, client_info->readBuff);
+					 memset(client_info->readBuff,0,MAX);
 					/*print response from server */
-					fprintf(stderr, "\n%s\n", client_info->responseBuff);
+
 				}
 			}
 
