@@ -61,7 +61,7 @@ LIST_HEAD(listhead, connection_data);
 
 int HandleMessage(char *message, struct connection_data *c_data, struct listhead head)
 {
-	char *parsed_message = message + 2; /* user message with no overhead      			*/
+	char *parsed_message = message + 1; /* user message with no overhead      			*/
 	struct connection_data *cp;			/* pointer for traversing client data 			*/
 	bool unique_chatroom = TRUE;		/* is the chat room name specified unique?  	*/
 	bool unique_port = TRUE;			/* is the server port unique? 					*/
@@ -76,7 +76,7 @@ int HandleMessage(char *message, struct connection_data *c_data, struct listhead
 		LIST_FOREACH(cp, &head, entries)
 		{
 			/* check for duplicate nicknames, set flag */
-			if (strcmp(cp->room_name, parsed_message) == 0)
+			if (0 == strncmp(cp->room_name, parsed_message, MAX))
 			{
 				unique_chatroom = FALSE;
 			}
@@ -87,12 +87,12 @@ int HandleMessage(char *message, struct connection_data *c_data, struct listhead
 		{
 			snprintf(c_data->room_name, MAX, parsed_message);
 			/* generate response */
-			snprintf(response, MAX, "d,Chat Room Opened!");
+			snprintf(response, MAX, "dChat Room Opened!");
 		}
 		/*else, server needs to specify a new chat room name*/
 		else
 		{
-			snprintf(response, MAX, "e");
+			snprintf(response, MAX, "eThe name you provided is already taken. Please try again.");
 		}
 
 		c_data->type = SERVER;
@@ -101,7 +101,8 @@ int HandleMessage(char *message, struct connection_data *c_data, struct listhead
 		break;
 	/* connection is server and is supplying port number, set port number */
 	case 'p':
-		c_data->port_number = atoi(parsed_message);//TODO: replace atoi()?
+		sscanf(parsed_message, "%d", &(c_data->port_number));
+		//c_data->port_number = atoi(parsed_message);//TODO: replace atoi()?
 		fprintf(stderr, "%s:%d Port Number: %d\n", __FILE__, __LINE__, c_data->port_number);
 	break;
 	/* recieve ip address from chat server(and port number) */
@@ -120,7 +121,8 @@ int HandleMessage(char *message, struct connection_data *c_data, struct listhead
 			if (tok != NULL)
 			{
 				/* assuming next token is port number TODO:error handling */
-				c_data->port_number = atoi(tok);													 // TODO: replace atoi()?
+				sscanf(tok, "%d", &(c_data->port_number));
+				//c_data->port_number = atoi(tok);													 // TODO: replace atoi()?
 				fprintf(stderr, "%s:%d Port Number: %d\n", __FILE__, __LINE__, c_data->port_number); // debug
 			}
 			else //no port number
@@ -149,7 +151,7 @@ int HandleMessage(char *message, struct connection_data *c_data, struct listhead
 				{
 					if (1 == i)
 					{ // first line
-						snprintf(temp, MAX, "d,%d. %s\n", i, cp->room_name);
+						snprintf(temp, MAX, "d%d. %s\n", i, cp->room_name);
 						strncpy(response, temp, MAX);
 					}
 					else
@@ -187,7 +189,7 @@ int HandleMessage(char *message, struct connection_data *c_data, struct listhead
 				/*send both with format: ip|port*/
 				/* send chat server ip address */
 				memset(response, 0, sizeof(response));
-				snprintf(response, MAX, "i,%s|", cp->ip_address);
+				snprintf(response, MAX, "i%s|", cp->ip_address);
 				/* send chat server port number */
 				// memset(response, 0, sizeof(response));
 				// snprintf(response, MAX, "p,%i", cp->port_number);

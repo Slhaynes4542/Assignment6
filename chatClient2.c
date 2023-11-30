@@ -54,7 +54,7 @@ struct client
 *************************************************/
 int HandleMessage(struct client *client_info, char * message)
 {
-	char* parsed_message = message + 2; 			/* message from server without overhead */
+	char* parsed_message = message + 1; 			/* message from server without overhead */
 	fprintf(stderr, "%s:%d In handle message, message was: %s\n", __FILE__, __LINE__, message);
 	switch(message[0])
 	{
@@ -81,7 +81,8 @@ int HandleMessage(struct client *client_info, char * message)
 			token = strtok(s, "|");			
 			serv_addr.sin_addr.s_addr	= inet_addr(token);
 			token = strtok(NULL, "|");
-			port = atoi(token); //FIXME
+			//port = atoi(token); //FIXME
+			sscanf(token, "%d", &port);
 			serv_addr.sin_port = htons(port);
 			token = strtok(NULL, "|");
 			snprintf(expected_common_name, MAX, "%s_chatServer", token);
@@ -90,9 +91,9 @@ int HandleMessage(struct client *client_info, char * message)
 		case 'p':
 			/* we now have what we need to close the connection with the directory server,
 			and establish a connection with the chat server */
-			port = atoi(parsed_message);
+			//port = atoi(parsed_message);
+			sscanf(parsed_message, "%d", &port);
 			serv_addr.sin_port = htons(port);
-			
 
 			/* close connection with directory server */
 			close(sockfd);
@@ -295,7 +296,7 @@ int val = fcntl(sockfd, F_GETFL, 0);		//Make sockfd non blocking
 			/* get user input */
 		if (1 == scanf(" %99[^\n]", client_info->responseBuff)) {
 
-					snprintf(s, MAX, "r,%s", client_info->responseBuff);
+					snprintf(s, MAX, "r%s", client_info->responseBuff);
 					SSL_write(directory_ssl, s, MAX);
 		}
 
@@ -334,19 +335,19 @@ int val = fcntl(sockfd, F_GETFL, 0);		//Make sockfd non blocking
 					/* if connected to directory server, specify chat room to join */
 					if(conn_dirserver)
 					{
-						snprintf(client_info->readBuff, MAX, "r,%s", client_info->responseBuff);
+						snprintf(client_info->readBuff, MAX, "r%s", client_info->responseBuff);
 
 					}
 					/*if haven't specified a nickname, specify nickname*/
 					else if(!has_nickname)
 					{
-						snprintf(client_info->readBuff, MAX,"n,%s", client_info->responseBuff);	
+						snprintf(client_info->readBuff, MAX,"n%s", client_info->responseBuff);	
 						has_nickname = TRUE;
 					}
 					/*else, send a chat*/
 					else
 					{
-						snprintf(client_info->readBuff, MAX, "c,%s\n", client_info->responseBuff);
+						snprintf(client_info->readBuff, MAX, "c%s\n", client_info->responseBuff);
 						
 					}
 

@@ -68,7 +68,7 @@ int HandleMessage(char * message, struct client_data* c_data, struct listhead he
 			LIST_FOREACH(cp, &head, entries)
 			{
 				/* check for duplicate nicknames, set flag */
-				if(strncmp(cp->client_name, parsed_message, MAX) == 0 )
+				if(0 == strncmp(cp->client_name, parsed_message, MAX))
 				{
 					unique_nickname = FALSE;
 				}
