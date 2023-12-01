@@ -77,7 +77,7 @@ int HandleMessage(char *message, struct connection_data *c_data, struct listhead
 			LIST_FOREACH(cp, &head, entries)
 			{
 				/* check for duplicate nicknames, set flag */
-				if (strcmp(cp->room_name, parsed_message) == 0)
+				if (strncmp(cp->room_name, parsed_message, MAX) == 0)
 				{
 					unique_chatroom = FALSE;
 				}
@@ -92,6 +92,7 @@ int HandleMessage(char *message, struct connection_data *c_data, struct listhead
 		else	/*else, server needs to specify a new chat room name*/
 		{
 			snprintf(c_data->sendBuff, MAX, "e");
+			c_data->kill_flag = TRUE;//flag for removal
 		}
 		c_data->writeable = TRUE;///flag client as having data to write
 		c_data->type = SERVER;
@@ -257,6 +258,7 @@ int main(int argc, char **argv)
 	struct connection_data *c_ptr;			/* pointers to client data 								*/
 	struct connection_data *np;				/* pointer used for traversing list         		    */
 	struct connection_data *np2;			/* pointer used for traversing list   					*/
+	struct connection_data *np3;			/* pointer used for removing from list 					*/
 	//int conn_count = 0;			   		/* number of clients connected to the server 			*/
 	int handle_ret;							/* return value for HandleMessage() 					*/
 	char ip_add[INET_ADDRSTRLEN];			/* string to store an ip address						*/
@@ -406,8 +408,10 @@ int main(int argc, char **argv)
 							else if(np->kill_flag == TRUE){
 								SSL_shutdown(np->ssl);
 								close(np->conn_fd);
-								LIST_REMOVE(np, entries);
-								free(np);
+								np3 = (struct connection_data *) malloc(sizeof(struct connection_data));
+								np3 = np;
+								LIST_REMOVE(np3, entries);
+								free(np3);
 								/* set c_ptr to the end of the list */
 								LIST_FOREACH(np2, &head, entries){
 									if (LIST_NEXT(np2, entries) == NULL){
@@ -459,10 +463,12 @@ int main(int argc, char **argv)
 									snprintf(s, MAX, "Connection to %s closed", np->ip_address);
 									fprintf(stderr, "%s", s);//print to stderr
 									memset(s, 0, MAX);
-									LIST_REMOVE(np, entries);
 									SSL_shutdown(np->ssl);
 									close(np->conn_fd);
-									free(np);
+									np3 = (struct connection_data *) malloc(sizeof(struct connection_data));
+									np3 = np;
+									LIST_REMOVE(np3, entries);
+									free(np3);
 									/* set c_ptr to the end of the list */
 									LIST_FOREACH(np2, &head, entries)
 									{
