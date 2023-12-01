@@ -18,7 +18,6 @@
 /* enums */
 enum connection_type
 {
-	UNKNOWN,
 	SERVER,
 	CLIENT
 };
@@ -135,12 +134,12 @@ int HandleMessage(char *message, struct connection_data *c_data, struct listhead
 			exit(1);//should only reach this point by malicious action
 		}
 		break;
-	/* connection is a chat client, set the connections type */
+	/* connection is a chat client, send server list */
 	case 'c':
 		c_data->type = CLIENT;
 
 		/* if there are available chat servers, send their chat room name to the client				*/
-		/* Assuming all server names fit into 51=MAX-(2+15+5+27):(2(d,)+15(#, )+5(\n)+27(prompt))	*/
+		/* Assuming 5 server names fit into 51=MAX-(2+15+5+27):(2(d,)+15(#, )+5(\n)+27(prompt))	*/
 		/* If server names exceed 51 chars total, this needs to be refactored						*/
 		if (!LIST_EMPTY(&head))
 		{
@@ -152,6 +151,7 @@ int HandleMessage(char *message, struct connection_data *c_data, struct listhead
 					if (1 == i)
 					{ // first line
 						snprintf(temp, MAX, "d%d. %s\n", i, cp->room_name);
+						fprintf(stderr,"%s",temp);
 						strncpy(response, temp, MAX);
 					}
 					else
@@ -185,7 +185,7 @@ int HandleMessage(char *message, struct connection_data *c_data, struct listhead
 			{
 				/*send ip, port, and room name with format: ip|port|roomname*/
 				memset(response, 0, sizeof(response));
-				snprintf(response, MAX, "i,%s|", cp->ip_address);//add ip to response
+				snprintf(response, MAX, "i%s|", cp->ip_address);//add ip to response
 				snprintf(temp, MAX, "%i|", cp->port_number);//stage port number
 				strncat(response, temp, MAX);//add port to response
 				snprintf(temp, MAX, "%s", cp->room_name);//stage chat room name
@@ -196,7 +196,7 @@ int HandleMessage(char *message, struct connection_data *c_data, struct listhead
 				//break;//goto return 1
 			}
 		}
-		snprintf(c_data->sendBuff, MAX, "v,Enter the name of the chat server you want to join:");
+		snprintf(c_data->sendBuff, MAX, "vEnter the name of the chat server you want to join:");
 		c_data->writeable = TRUE;//flag client as having data to write
 		return 0;
 		break;
