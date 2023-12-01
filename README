@@ -10,7 +10,8 @@
 1. type 'make' to make all the files
 2. type './directoryServer5' to run the directory server
 3. type './chatServer5 <topic> <port>' to run a chat server
-   valid topics are 'TV' and 'sports'. These need to be typed with exact matching spelling and case.
+   Valid topics are 'TV' and 'sports'. These need to be typed with exact matching spelling and case.
+   Valid ports are between 1024 and 65535.
    There are three certs, one for the directory and two for those different chat servers
 4. type './chatClient5' to run a chat client
 -------------------------------------
