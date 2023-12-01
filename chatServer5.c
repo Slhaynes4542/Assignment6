@@ -23,11 +23,11 @@ char 				ip_address[INET_ADDRSTRLEN];	 /* ip address for this server 							*/
 	{
 		SSL *ssl;
 		int sock;
-		char client_name[MAX]; 
+		char* client_name; 
 		char write[MAX], read[MAX];
 		char *r_ptr, *w_ptr;
-		bool writeable; 				  /* is there something to write to this client? */
 		LIST_ENTRY(client_data) entries;  /* list */
+		bool writeable; 				  /* is there something to write to this client? */
 	};
 
 /*Directory Server read and write buffer */
@@ -96,25 +96,16 @@ fprintf(stderr, "%s:%d In handle message, message was: %s\n", __FILE__, __LINE__
 			/*generate response */
 			snprintf(response, MAX, "c%s : %s", c_data->client_name, parsed_message);
 			return 1;
-			
+		break;
 		/*if first character is a 'd',chat room successful */
 		case 'd':
 			fprintf(stderr, "Chat Room opened!\n", __FILE__, __LINE__);
 			return 1;
+			break;
 		
 		/*if first character is a 'o', chat room name is invalid, exit */
 		case 'e': 
 			fprintf(stderr, "Unable to open chat room. Chat room name already exists.\n");
-			exit(0);
-			
-		/* port out of range */
-		case 'f':
-			fprintf(stderr, "Unable to open chat room. Port number outside of range.\n");
-			exit(0);
-		
-		/* port already in use */
-		case 'g':
-			fprintf(stderr, "Unable to open chat room. Port number already in use.\n");
 			exit(0);
 
 		/*otherwise, error reading message */
@@ -164,7 +155,6 @@ int main(int argc, char **argv)
 	}
 	else{
 		snprintf(room_name, MAX, argv[1]);
-		//port_number = atoi(argv[2]);
 		sscanf(argv[2], "%d", &port_number);
 	}
 
@@ -176,7 +166,7 @@ int main(int argc, char **argv)
 	SSL *dirSSL;
 	SSL_METHOD *dirMethod;
 	SSL_CTX *dirCTX;
-	dirMethod = TLS_client_method();
+	dirMethod = SSLv23_method();
 	dirCTX = SSL_CTX_new(dirMethod);
 	if(!dirCTX){
 		perror("server: directory context creation error");
@@ -273,7 +263,7 @@ int main(int argc, char **argv)
 	SSL *cliSSL;
 	SSL_METHOD *cliMethod;
 	SSL_CTX *cliCTX;
-	cliMethod = TLS_server_method();
+	cliMethod = SSLv23_server_method();
 	cliCTX = SSL_CTX_new(cliMethod);
 	if(!cliCTX){
 		perror("server: client context creation error");
@@ -284,6 +274,7 @@ int main(int argc, char **argv)
 	char fileName[MAX];
 	snprintf(fileName, MAX, "%s_chatServer.crt", room_name);
 	SSL_CTX_use_certificate_file(cliCTX, fileName, SSL_FILETYPE_PEM);
+
 	SSL_CTX_use_PrivateKey_file(cliCTX, "private.key", SSL_FILETYPE_PEM);
 	
 	if(!SSL_CTX_check_private_key(cliCTX)){
@@ -332,9 +323,8 @@ int main(int argc, char **argv)
 		/* re-add all socket descriptors to readset */
      	LIST_FOREACH(np, &head, entries){
 			FD_SET(np->sock, &readset);
-			if(np->writeable){
-				FD_SET(np->sock, &writeset);
-			}
+			FD_SET(np->sock, &writeset);
+			
 		} 
 	
 		/* see if any descriptors are ready to be read, wait forever. */
@@ -347,7 +337,7 @@ int main(int argc, char **argv)
 				/* Accept a new connection request */
 				clilen = sizeof(cli_addr);
 				new_sockfd = accept(sockfd, (struct sockaddr *) &cli_addr, &clilen);
-				if (0 > new_sockfd) {
+				if (new_sockfd < 0) {
 					perror("server: accept error");
 					exit(1);
 				}
@@ -355,8 +345,7 @@ int main(int argc, char **argv)
 
 				
 				/* Associate SSL struct to newsock */
-				SSL *newSSL;
-				newSSL = SSL_new(cliCTX);
+				SSL *newSSL = SSL_new(cliCTX);
 				SSL_set_fd(newSSL, new_sockfd);
 				fprintf(stderr, "%s:%d CLient connected via TCP attempting SSL connection...\n", __FILE__, __LINE__);
 				if(SSL_accept(newSSL) <= 0) {
@@ -373,18 +362,17 @@ int main(int argc, char **argv)
 
 			/*store client data in client data structure */
 				struct client_data *new_client = (struct client_data *)malloc(sizeof(struct client_data));
-				//new_client->client_name = (char*)malloc(MAX);
+				new_client->client_name = (char*)malloc(MAX);
 				new_client->sock = new_sockfd;
 				new_client->ssl = newSSL;
-				//new_client->r_ptr = &(new_client->read[0]);
-				//new_client->w_ptr = &(new_client->write);
+				new_client->r_ptr = &(new_client->read[0]);
+				new_client->w_ptr = &(new_client->write);
 				//fprintf(stderr, "\nclient fd: %d\n", (int)(new_client->ssl));
 				/* if client is the first client, make this client the head of the linked list and announce event; else, add client to end of list */
-				if(LIST_EMPTY(&head))
+				if(client_count == 0 )
 				{
 					LIST_INSERT_HEAD(&head, new_client, entries); 
 					c_ptr = new_client;
-					memset(response, 0, MAX);
 					snprintf(response, MAX, "jYou are the first to join the chat!\nPlease Enter a nickname:\n\0");
 					snprintf(new_client->write, MAX, response);
 					new_client->writeable = TRUE;
@@ -413,29 +401,6 @@ int main(int argc, char **argv)
 			}
 			else
 			{
-				/* write to clients */
-				if(!LIST_EMPTY(&head)){
-					LIST_FOREACH(np, &head, entries)
-					{
-						/* if fd is in writeset, then process write */
-						//int val = ((wb_space = &(np2->write[MAX]) - np2->w_ptr) > 0);
-						if(np->writeable && FD_ISSET( np->sock, &writeset))
-						{
-							if((nwritten = SSL_write(np->ssl, np->write, MAX)) < 0){
-								if (errno != SSL_ERROR_WANT_WRITE) { perror("write error on socket"); }
-							}
-							else if(nwritten > 0)
-							{
-
-								/* clear write buffer */
-								memset(np->write, 0, MAX);
-								/* set writable flag to false */
-								np->writeable = FALSE;
-							}
-						}
-					}
-				}
-			
 				/*else, read from a client socket */
 				LIST_FOREACH(np, &head, entries)
 				{
@@ -451,7 +416,7 @@ int main(int argc, char **argv)
 							{ 
 								perror("read error on socket"); 
 							}
-							else if(0 == nread)
+							else if( nread == 0)
 							{
 								fprintf(stderr, "%s:%d: EOF on socket\n", __FILE__, __LINE__);
 							}
@@ -475,13 +440,13 @@ int main(int argc, char **argv)
 						}
 						
 						/*if the r_ptr is equal to the the MAX address of the read buffer, we have the entire message. Proceed with handling message.*/
-						if(0 < nread)
+						if(nread > 0)
 						{
 							/* handle message */
 							handle_ret = HandleMessage(np->read, np, head);
 							
 							/* If HandleMessage() return 1, then broadcast message to all clients except the sender. */
-							if(1 == handle_ret)
+							if(handle_ret == 1)
 							{
 								LIST_FOREACH(np2, &head, entries)
 								{
@@ -495,18 +460,39 @@ int main(int argc, char **argv)
 
 								//write(np2->client_fd, response, MAX);
 							}
-							/* If HandleMessage() returns 0, user has entered an invalid nickname. */
-							else if(0 == handle_ret)
-							{
-								strncpy(np->write, response, MAX);
-								np->writeable = TRUE;
-							}			
+										
 						}
-					}		
+						/* If HandleMessage() returns 0, user has entered an invalid nickname. */
+						if( handle_ret == 0 )
+						{
+							strncpy(np->write, response, MAX);
+							np->writeable = TRUE;
+						}
+					}
+							
 				}		
 			}
 
-			
+			/* write to clients */
+			LIST_FOREACH(np2, &head, entries)
+			{
+				/* if fd is in writeset, then process write */
+				//int val = ((wb_space = &(np2->write[MAX]) - np2->w_ptr) > 0);
+				if(np2->writeable && FD_ISSET( np2->sock, &writeset))
+				{
+						if((nwritten = SSL_write(np2->ssl, np2->write, MAX)) < 0){
+							if (errno != SSL_ERROR_WANT_WRITE) { perror("write error on socket"); }
+						}
+					if(nwritten > 0)
+					{
+
+							/* clear write buffer */
+							memset(np2->write, 0, MAX);
+							/* set writable flag to false */
+							np2->writeable = FALSE;
+					}
+				}
+			}
 		}
 	}
 }

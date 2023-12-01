@@ -18,11 +18,14 @@
 /* enums */
 enum connection_type
 {
+	UNKNOWN,
 	SERVER,
 	CLIENT
 };
 
 /* global variables */
+char response[MAX];		/* response to send to clients  	*/
+int server_count = 0;	/* number of chat servers connected */ // probaby unneeded as global
 
 /*client Data structure (linked list)*/
 struct connection_data
@@ -37,8 +40,9 @@ struct connection_data
 	char readBuff[MAX];						/* read buffer									*/
 	LIST_ENTRY(connection_data)	entries;	/* list											*/
 	bool ssl_connected;						/* is ssl connection established?				*/
-	bool writeable;							/* workaround for socket stuck in writeset?		*/
-	bool kill_flag;							/* flag for removal after write to server		*/
+	bool writeReady; 				/* workaround for socket stuck in writeset?		*/
+	bool writeable;
+
 };
 
 LIST_HEAD(listhead, connection_data);
@@ -59,7 +63,6 @@ LIST_HEAD(listhead, connection_data);
 int HandleMessage(char *message, struct connection_data *c_data, struct listhead head)
 {
 	char *parsed_message = message + 1; /* user message with no overhead      			*/
-	char response[MAX];					/* response to send to clients					*/
 	struct connection_data *cp;			/* pointer for traversing client data 			*/
 	bool unique_chatroom = TRUE;		/* is the chat room name specified unique?  	*/
 	bool unique_port = TRUE;			/* is the server port unique? 					*/
@@ -70,59 +73,41 @@ int HandleMessage(char *message, struct connection_data *c_data, struct listhead
 	{
 	/*connection is a chat server and is providing chat room name, set the connection type and name, TO-DO: check for duplicate names */
 	case 'n':
-		memset(temp, 0, MAX);
-		strncpy(temp, parsed_message, MAX);//ensure null term
-		if (!LIST_EMPTY(&head)){
-			LIST_FOREACH(cp, &head, entries){
-				/* check for duplicate nicknames, set flag */
-				if(cp->type == SERVER){
-					fprintf(stderr, "%s", cp->room_name);
-					if (strcmp(cp->room_name, temp) == 0){
-						unique_chatroom = FALSE;
-					}
-				}
+		/*process */
+		LIST_FOREACH(cp, &head, entries)
+		{
+			/* check for duplicate nicknames, set flag */
+			if (strncmp(cp->room_name, parsed_message, MAX) == 0)
+			{
+				unique_chatroom = FALSE;
 			}
 		}
+
 		/* if chat room name is unique, add to connection record and generate a response */
-		if (unique_chatroom){
-			snprintf(c_data->room_name, MAX, parsed_message);//save room name
-			snprintf(c_data->sendBuff, MAX, "dChat Room Opened!");//response to chat server
+		if (unique_chatroom)
+		{
+			snprintf(c_data->room_name, MAX, parsed_message);
+			/* generate response */
+			snprintf(response, MAX, "dChat Room Opened!");
 		}
-		else{	/*else, server needs to specify a new chat room name*/
-			snprintf(c_data->sendBuff, MAX, "e");
-			c_data->kill_flag = TRUE;//flag for removal
+		/*else, server needs to specify a new chat room name*/
+		else
+		{
+			snprintf(response, MAX, "e");
 		}
-		c_data->writeable = TRUE;///flag client as having data to write
+
 		c_data->type = SERVER;
-		//fprintf(stderr, "%s:%d Chat Room name: %s\n", __FILE__, __LINE__, c_data->room_name);//debug
-		break;//goto return 1
+		server_count++;
+		fprintf(stderr, "%s:%d Chat Room name: %s\n", __FILE__, __LINE__, c_data->room_name);
+		break;
 	/* connection is server and is supplying port number, set port number */
 	case 'p':
-		memset(temp, 0, MAX);
-		//c_data->port_number = (int)strtoul(parsed_message,&temp,10);//TODO: check temp for extra chars
-		sscanf(parsed_message, "%d", &(c_data->port_number));
-		//fprintf(stderr, "%s:%d Port Number: %d\n", __FILE__, __LINE__, c_data->port_number); // debug
-		if((c_data->port_number > 1024) && (c_data->port_number < 65535)){
-			if (!LIST_EMPTY(&head)){
-				LIST_FOREACH(cp, &head, entries){
-					if((c_data->conn_fd != cp->conn_fd) && (c_data->port_number == cp->port_number)){
-						fprintf(stderr, "%s:%d Chat Server Port Number already in use.\n", __FILE__, __LINE__);
-						snprintf(c_data->sendBuff, MAX, "g");
-						c_data->writeable = TRUE;//flag client as having data to write
-						c_data->kill_flag = TRUE;//flag for removal
-					}
-				}
-			}
-		}
-		else{
-			fprintf(stderr, "%s:%d Chat Server Port Number out of range.\n", __FILE__, __LINE__);
-			snprintf(c_data->sendBuff, MAX, "f");
-			c_data->writeable = TRUE;///flag client as having data to write
-			c_data->kill_flag = TRUE;//flag for removal
-		}
-		break;//goto return 1
-	/* recieve ip address from chat server(and port number). changes in client reverted, no longer used */
+		c_data->port_number = atoi(parsed_message);//TODO: replace atoi()?
+		fprintf(stderr, "%s:%d Port Number: %d\n", __FILE__, __LINE__, c_data->port_number);
+	break;
+	/* recieve ip address from chat server(and port number) */
 	case 'i':
+		// snprintf(c_data->ip_address, MAX, "%s", parsed_message);
 		snprintf(temp, MAX, "%s", parsed_message);
 		const char delim[2] = "|"; // delimiter for tokenization
 		char *tok;				   // token ref
@@ -131,65 +116,41 @@ int HandleMessage(char *message, struct connection_data *c_data, struct listhead
 		if (tok != NULL)
 		{
 			snprintf(c_data->ip_address, MAX, "%s", tok);
-			//fprintf(stderr, "%s:%d Chat Server IP: %s\n", __FILE__, __LINE__, c_data->ip_address); // debug
+			fprintf(stderr, "%s:%d Chat Server IP: %s\n", __FILE__, __LINE__, c_data->ip_address); // debug
 			tok = strtok(NULL, delim);
 			if (tok != NULL)
 			{
 				/* assuming next token is port number TODO:error handling */
-				//c_data->port_number = atoi(tok); // TODO: replace atoi()?
-				char temp1[MAX] = {"\0"};
-				//c_data->port_number = (int)strtoul(tok,&temp,10);
-				sscanf(tok, "%d", %(c_data->port_number));
-				//fprintf(stderr, "%s:%d Port Number: %d\n", __FILE__, __LINE__, c_data->port_number); // debug
-				if((c_data->port_number > 1024) && (c_data->port_number < 65535)){
-					if (!LIST_EMPTY(&head)){
-						LIST_FOREACH(cp, &head, entries){
-							if((c_data->conn_fd != cp->conn_fd) && (c_data->port_number == cp->port_number)){
-								fprintf(stderr, "%s:%d Chat Server Port Number already in use.\n", __FILE__, __LINE__);
-								snprintf(c_data->sendBuff, MAX, "g");
-								c_data->writeable = TRUE;//flag client as having data to write
-								c_data->kill_flag = TRUE;//flag for removal
-							}
-						}
-					}
-				}
-				else{
-					fprintf(stderr, "%s:%d Chat Server Port Number out of range.\n", __FILE__, __LINE__);
-					snprintf(c_data->sendBuff, MAX, "f");
-					c_data->writeable = TRUE;///flag client as having data to write
-					c_data->kill_flag = TRUE;//flag for removal
-				}
+				c_data->port_number = atoi(tok);													 // TODO: replace atoi()?
+				fprintf(stderr, "%s:%d Port Number: %d\n", __FILE__, __LINE__, c_data->port_number); // debug
 			}
 			else //no port number
 			{
-				fprintf(stderr, "%s:%d Error reading Chat Server Port Number.\n", __FILE__, __LINE__);
-				exit(1);//should only reach this point by malicious action
+				fprintf(stderr, "%s:%d Error reading Chat Server Port Number.\n", __FILE__, __LINE__); // debug
+				exit(1);
 			}
 		}
 		else //no ip recieved/nothing recieved
 		{
-			fprintf(stderr, "%s:%d Error reading Chat Server IP.\n", __FILE__, __LINE__);
-			exit(1);//should only reach this point by malicious action
+			fprintf(stderr, "%s:%d Error reading Chat Server IP.\n", __FILE__, __LINE__); // debug
+			exit(1);
 		}
 		break;
-	/* connection is a chat client, send server list */
+	/* connection is a chat client, set the connections type */
 	case 'c':
 		c_data->type = CLIENT;
 
-		/* if there are available chat servers, send their chat room name to the client				*/
-		/* Assuming 5 server names fit into 51=MAX-(2+15+5+27):(2(d,)+15(#, )+5(\n)+27(prompt))	*/
-		/* If server names exceed 51 chars total, this needs to be refactored						*/
-		if (!LIST_EMPTY(&head))
+		/* if there are available chat servers, send their chat room name to the client */
+		if (server_count != 0) // replace with list_isempty()
 		{
 			memset(response, 0, sizeof(response));
 			LIST_FOREACH(cp, &head, entries)
-			{
-				if ((cp->type == SERVER)&&(cp->kill_flag == FALSE))
+			{ /*Assuming all 5 server names fit into 51=MAX-(2+15+5+27):(2(d,)+15(#, )+5(\n)+27(prompt))*/
+				if (cp->type == SERVER)
 				{
 					if (1 == i)
 					{ // first line
 						snprintf(temp, MAX, "d%d. %s\n", i, cp->room_name);
-						//fprintf(stderr,"%s",temp);//debug
 						strncpy(response, temp, MAX);
 					}
 					else
@@ -197,19 +158,24 @@ int HandleMessage(char *message, struct connection_data *c_data, struct listhead
 						snprintf(temp, MAX, "%d. %s\n", i, cp->room_name);
 						strncat(response, temp, MAX); // append to previous lines
 					}
+
 					i++;
 				}
+				c_data->writeable = TRUE;
 			}
-			snprintf(temp, MAX, "Enter server name to join: ");//stage user prompt
-			strncat(response, temp, MAX); // append prompt to server list	
+
+			// snprintf(response, MAX, "c,Enter the name of the chat server you want to join: ");
+			snprintf(temp, MAX, "Enter server name to join: ");
+			strncat(response, temp, MAX); // append to server list	
 			snprintf(c_data->sendBuff, MAX, "%s", response);
-			c_data->writeable = TRUE;///flag client as having data to write
+			//FIX ME set write flag
+			//return -1;
 			return 1;
+			//break;
 		}
 		else
 		{
-			snprintf(c_data->sendBuff, MAX, "There are no available chat servers.");
-			c_data->writeable = TRUE;//flag client as having data to write
+			snprintf(response, MAX, "There are no available chat servers.");
 		}
 		break;
 	/* recieved chat room connection request from client */
@@ -220,21 +186,27 @@ int HandleMessage(char *message, struct connection_data *c_data, struct listhead
 			/*if client specifies a chat room to join, send the servers information to the client */
 			if (strncmp(cp->room_name, parsed_message, MAX) == 0)
 			{
-				/*send ip, port, and room name with format: ip|port|roomname*/
+				/*send both with format: ip|port*/
+				/* send chat server ip address */
 				memset(response, 0, sizeof(response));
-				snprintf(response, MAX, "i%s|", cp->ip_address);//add ip to response
-				snprintf(temp, MAX, "%i|", cp->port_number);//stage port number
-				strncat(response, temp, MAX);//add port to response
-				snprintf(temp, MAX, "%s", cp->room_name);//stage chat room name
-				strncat(response, temp, MAX);//add chat room name to response
-				snprintf(c_data->sendBuff, MAX, "%s", response);//put response in client's send buffer
-				c_data->writeable = TRUE;//flag client as having data to write
-				return 1;
+				snprintf(response, MAX, "i%s|", cp->ip_address);
+				/* send chat server port number */
+				// memset(response, 0, sizeof(response));
+				// snprintf(response, MAX, "p%i", cp->port_number);
+				snprintf(temp, MAX, "%i|", cp->port_number);
+				strncat(response, temp, MAX);
+				snprintf(temp, MAX, "%s", cp->room_name);
+				strncat(response, temp, MAX);
+				snprintf(c_data->sendBuff, MAX, "%s", response);
+
+				c_data->writeable = TRUE;
+				break;
+				
 			}
 		}
-		snprintf(c_data->sendBuff, MAX, "vEnter the name of the chat server you want to join:");
-		c_data->writeable = TRUE;//flag client as having data to write
-		return 0;
+		
+		break;
+		//return 0;
 		break;
 	default:
 		fprintf(stderr, "%s:%d Error reading from connection, got %s\n", __FILE__, __LINE__, message);
@@ -250,37 +222,18 @@ int main(int argc, char **argv)
 	unsigned int clilen;					/* client length 										*/
 	struct sockaddr_in cli_addr, serv_addr; /* socket, client, and server addresses				    */
 	char s[MAX];
-	fd_set readset;							/* set of file descriptors (sockets) available to read  */
-	fd_set writeset;						/* set of file descriptors (sockets) available to write */
-	int max_fd = 0;							/* maximum file descriptor in readset 					*/
+	fd_set readset;	 /* set of file descriptors (sockets) available to read  */
+	fd_set writeset; /* set of file descriptors (sockets) available to write */
+	int max_fd = 0;	 /* maximum file descriptor in readset 					*/
 	int j, nread, nwrite;
-	struct listhead head;					/* head of linked list containing client data			*/
-	struct connection_data *c_ptr;			/* pointers to client data 								*/
-	struct connection_data *np;				/* pointer used for traversing list         		    */
-	struct connection_data *np2;			/* pointer used for traversing list   					*/
-	struct connection_data *np3;			/* pointer used for removing from list 					*/
-	//int conn_count = 0;			   		/* number of clients connected to the server 			*/
-	int handle_ret;							/* return value for HandleMessage() 					*/
-	char ip_add[INET_ADDRSTRLEN];			/* string to store an ip address						*/
-	/************************************************************/
-	/*** Initialize Server SSL state                          ***/
-	/************************************************************/
-	SSL *ssl;							/* ssl var */
-	int ssl_err;						/* ssl error return */
-	SSL_METHOD *method;					/* SSL method */
-	SSL_CTX *ctx;						/* SSL context */
-	OpenSSL_add_all_algorithms();		/* Load cryptos, et.al. */
-	SSL_load_error_strings();			/* Load/register error msg */
-	method = TLS_server_method();		/* Create new server-method */
-	ctx = SSL_CTX_new(method);			/* Create new context */
-	SSL_CTX_use_certificate_file(ctx, "directory_server.crt", SSL_FILETYPE_PEM); /* set the local certificate from CertFile */
-	SSL_CTX_use_PrivateKey_file(ctx, "private.key", SSL_FILETYPE_PEM);			 /* set private key from KeyFile */
-	/* verify private key */
-	if (!SSL_CTX_check_private_key(ctx))
-	{
-		fprintf(stderr, "Key & certificate don't match");
-		exit(1);
-	}
+	struct listhead head;		   /* head of linked list containing client data			*/
+	struct connection_data *c_ptr; /* pointers to client data 								*/
+	struct connection_data *np;	   /* pointer used for traversing list         		    */
+	struct connection_data *np2;   /* pointer used for traversing list   					*/
+	//int conn_count = 0;			   /* number of clients connected to the server 			*/
+	int handle_ret;				   /* return value for HandleMessage() 					*/
+	char ip_add[INET_ADDRSTRLEN];  /* string to store an ip address						*/
+	SSL *ssl;					   /* ssl var */
 
 	/* Create communication endpoint */
 	if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
@@ -308,34 +261,56 @@ int main(int argc, char **argv)
 	/* specify that the listening socket is listening for 5 connections */
 	listen(sockfd, 5);
 
+	/************************************************************/
+	/*** Initialize Server SSL state                          ***/
+	/************************************************************/
+	SSL_METHOD *method;					/* SSL method */
+	SSL_CTX *ctx;						/* SSL context */
+	OpenSSL_add_all_algorithms();		/* Load cryptos, et.al. */
+	SSL_load_error_strings();			/* Load/register error msg */
+	method = SSLv23_server_method();	/* Create new server-method */
+	// method = SSLv3_server_method();
+	ctx = SSL_CTX_new(method);			/* Create new context */
+
+	/* Load certificate and private key files */
+	SSL_CTX_use_certificate_file(ctx, "directory_server.crt", SSL_FILETYPE_PEM); /* set the local certificate from CertFile */
+	SSL_CTX_use_PrivateKey_file(ctx, "private.key", SSL_FILETYPE_PEM);			 /* set private key from KeyFile */
+	/* verify private key */
+	if (!SSL_CTX_check_private_key(ctx))
+	{
+		fprintf(stderr, "Key & certificate don't match");
+		exit(1);
+	}
+
 	/* Directory Server init done, Loop until termination */
 	for (;;)
 	{
 		fflush(stdout);
 		FD_ZERO(&readset);
 		FD_ZERO(&writeset);
+		//FD_SET(0, &readset);
 		FD_SET(sockfd, &readset);
 
 		/* re-add all socket descriptors to readset */
 		LIST_FOREACH(np, &head, entries)
 		{
 			FD_SET(np->conn_fd, &readset);
-			if(np->writeable == TRUE){//if write flag set, add to writeset
+			if(np->writeReady == TRUE){
 				FD_SET(np->conn_fd, &writeset);
 			}
+			//TODO: check if np->writeReady, then add to writeset?
 		}
 
 		/* see if any descriptors are ready to be read, wait forever. */
 		if ((j = select(max_fd + 1, &readset, &writeset, NULL, NULL)) > 0)
 		{
-			//fprintf(stderr, "entered select.\n"); // debug
+			fprintf(stderr, "entered select.\n"); // debug
 			if (FD_ISSET(sockfd, &readset))
 			{
-				//fprintf(stderr, "entered accept.\n"); // debug
 				/* Accept a new connection request */
 				clilen = sizeof(cli_addr);
 				new_sockfd = accept(sockfd, (struct sockaddr *)&cli_addr, &clilen);
-				if (0 > new_sockfd)
+				if (new_sockfd < 0)
 				{
 					perror("server: accept error");
 					close(new_sockfd); // TODO: close new socket?
@@ -351,7 +326,7 @@ int main(int argc, char **argv)
 					perror("inet_ntop");
 					exit(1);
 				}
-				fprintf(stderr, "New Connection: %s\n", ip_add); // debug
+				printf("Client IP address: %s\n", ip_add); // debug
 
 				/*store client data in client data structure */
 				struct connection_data *new_conn = (struct connection_data *)malloc(sizeof(struct connection_data));
@@ -360,10 +335,10 @@ int main(int argc, char **argv)
 				/*init buffer pointers*/
 				new_conn->conn_fd = new_sockfd;
 				new_conn->ssl_connected = FALSE;
+				new_conn->writeReady = FALSE;
 				new_conn->writeable = FALSE;
-				new_conn->kill_flag = FALSE;
-				//fprintf(stderr, "\nchat server ip: %s\n", new_conn->ip_address); // debug
-				//fprintf(stderr, "connection fd: %d\n", new_conn->conn_fd);	 // debug
+				fprintf(stderr, "\nchat server ip: %s\n", new_conn->ip_address); // debug
+				fprintf(stderr, "\nconnection fd: %d\n", new_conn->conn_fd);	 // debug
 
 				
 				/* if connection is the first connection, make this connection the head of the linked list; else, add connection to end of list */
@@ -371,7 +346,6 @@ int main(int argc, char **argv)
 				{
 					LIST_INSERT_HEAD(&head, new_conn, entries);
 					c_ptr = new_conn;
-					//fprintf(stderr, "first list entry\n");	 // debug
 				}
 				else
 				{
@@ -392,36 +366,16 @@ int main(int argc, char **argv)
 					/* if fd is in writeset, then process pending write */
 					if (np->writeable && FD_ISSET(np->conn_fd, &writeset) )
 					{
-						nwrite = SSL_write(np->ssl, np->sendBuff, MAX);
-						ssl_err = SSL_get_error(np->ssl, nwrite);
-						if (nwrite < 0)
-						{
-							perror("write error on socket");
-							if(ssl_err == SSL_ERROR_WANT_WRITE){//should be recoverable, just notify and continue
-								perror("SSL data awaiting write");
+						fprintf(stderr, "In write set\n");
+						if ((nwrite = SSL_write(np->ssl, np->sendBuff, MAX)) < 0) //FIXME
+						{ // TODO: change to SSL_write()
+							if (errno != EWOULDBLOCK)//TODO: replace with ssl error checks
+							{
+								perror("write error on socket");
 							}
 						}
-						else if(nwrite > 0){
-							if(ssl_err == SSL_ERROR_WANT_WRITE){//should be recoverable, just notify and continue
-								perror("SSL data awaiting write");
-							}
-							else if(np->kill_flag == TRUE){
-								SSL_shutdown(np->ssl);
-								close(np->conn_fd);
-								np3 = (struct connection_data *) malloc(sizeof(struct connection_data));
-								np3 = np;
-								LIST_REMOVE(np3, entries);
-								free(np3);
-								/* set c_ptr to the end of the list */
-								LIST_FOREACH(np2, &head, entries){
-									if (LIST_NEXT(np2, entries) == NULL){
-										c_ptr = np2;
-									}
-								}
-							}
-							else{
-								np->writeable = FALSE;
-							}
+						if(nwrite > 0){
+							np->writeable = FALSE;
 						}
 					}
 
@@ -439,7 +393,7 @@ int main(int argc, char **argv)
 							}
 
 							SSL_set_fd(np->ssl, np->conn_fd); /* associate SSL state with socket	*/
-							if (0 == SSL_accept(np->ssl))
+							if (SSL_accept(np->ssl) == 0)
 							{
 								ERR_print_errors_fp(stderr);
 							}
@@ -450,47 +404,63 @@ int main(int argc, char **argv)
 								perror("Error setting non-blocking socket.");
 							}
 							np->ssl_connected = TRUE;
+							np->writeReady = TRUE;
 						}
 						else
 						{
 							if ((nread = SSL_read(np->ssl, np->readBuff, MAX)) <= 0)
 							{
-								//perror("SSL read error");//debug
-								ssl_err = SSL_get_error(np->ssl, nread);
-								/* if socket is readable and writable: socket is closed. OR ssl zero return: ssl closed. */
-								if ((FD_ISSET(np->conn_fd, &readset) && FD_ISSET(np->conn_fd, &writeset)) || (ssl_err == SSL_ERROR_ZERO_RETURN))
+								if (errno != EWOULDBLOCK)//TODO: change to ssl errorchecking
 								{
-									snprintf(s, MAX, "Connection to %s closed", np->ip_address);
-									fprintf(stderr, "%s", s);//print to stderr
-									memset(s, 0, MAX);
-									SSL_shutdown(np->ssl);
-									close(np->conn_fd);
-									np3 = (struct connection_data *) malloc(sizeof(struct connection_data));
-									np3 = np;
-									LIST_REMOVE(np3, entries);
-									free(np3);
-									/* set c_ptr to the end of the list */
-									LIST_FOREACH(np2, &head, entries)
+									perror("read error from socket");
+									if (FD_ISSET(np->conn_fd, &readset) && FD_ISSET(np->conn_fd, &writeset))
 									{
-										if (LIST_NEXT(np2, entries) == NULL)
+										fprintf(stderr, "%s:%d Readable and writeable, closing\n", __FILE__, __LINE__);
+										/* Remove connection from list */
+
+										/* if connection is a chat server, decrement count of chat servers */
+										if (np->type == SERVER)
 										{
-											c_ptr = np2;
+											server_count--;
+										}
+										LIST_REMOVE(np, entries);
+										close(np->conn_fd);
+										free(np);
+										/* set c_ptr to the end of the list */
+										LIST_FOREACH(np2, &head, entries)
+										{
+											if (LIST_NEXT(np2, entries) == NULL)
+											{
+												c_ptr = np2;
+											}
 										}
 									}
 								}
-								else if(ssl_err == SSL_ERROR_WANT_READ){//should be recoverable, just notify and continue
-									perror("SSL data awaiting read");
-								}
-								else if(ssl_err == SSL_ERROR_NONE){
-									perror("SSL err none");//debug
+								else if (0 == nread)
+								{
+									fprintf(stderr, "%s:%d EOF on this socket\n", __FILE__, __LINE__);
+									// LIST_REMOVE(np, entries);
+									// close(np->conn_fd);
+									// free mem
+									// free(np); //maybe
 								}
 							}
 							else
 							{ // nread > 0
-						
 								handle_ret = HandleMessage(np->readBuff, np, head);
-								if (handle_ret < 0)//invalid message
+
+								/* If HandleMessage() return 1, then stage response */
+								if (handle_ret == 1)
 								{
+									strncpy(np->sendBuff, response, MAX);
+								}
+								/* if HandleMessage() return 0, client entered invalid chat room name */
+								else if (handle_ret == 0)
+								{
+									snprintf(response, MAX, "vEnter the name of the chat server you want to join:");//TODO: Move this to HandleMessage()?
+									strncpy(np->sendBuff, response, MAX);
+								}
+								else{
 									fprintf(stderr, "%s:%d Invalid return from HandleMessage\n", __FILE__, __LINE__);
 									exit(1);
 								}
