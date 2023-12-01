@@ -189,7 +189,8 @@ int HandleMessage(char *message, struct connection_data *c_data, struct listhead
 				strncat(response, temp, MAX);//add chat room name to response
 				snprintf(c_data->sendBuff, MAX, "%s", response);//put response in client's send buffer
 				c_data->writeable = TRUE;//flag client as having data to write
-				break;//goto return 1
+				return 1;
+				//break;//goto return 1
 			}
 		}
 		snprintf(c_data->sendBuff, MAX, "v,Enter the name of the chat server you want to join:");
@@ -232,7 +233,6 @@ int main(int argc, char **argv)
 	SSL_load_error_strings();			/* Load/register error msg */
 	method = TLS_server_method();		/* Create new server-method */
 	ctx = SSL_CTX_new(method);			/* Create new context */
-	/* Load certificate and private key files */
 	SSL_CTX_use_certificate_file(ctx, "directory_server.crt", SSL_FILETYPE_PEM); /* set the local certificate from CertFile */
 	SSL_CTX_use_PrivateKey_file(ctx, "private.key", SSL_FILETYPE_PEM);			 /* set private key from KeyFile */
 	/* verify private key */
@@ -288,9 +288,10 @@ int main(int argc, char **argv)
 		/* see if any descriptors are ready to be read, wait forever. */
 		if ((j = select(max_fd + 1, &readset, &writeset, NULL, NULL)) > 0)
 		{
-			fprintf(stderr, "entered select.\n"); // debug
+			//fprintf(stderr, "entered select.\n"); // debug
 			if (FD_ISSET(sockfd, &readset))
 			{
+				//fprintf(stderr, "entered accept.\n"); // debug
 				/* Accept a new connection request */
 				clilen = sizeof(cli_addr);
 				new_sockfd = accept(sockfd, (struct sockaddr *)&cli_addr, &clilen);
@@ -310,7 +311,7 @@ int main(int argc, char **argv)
 					perror("inet_ntop");
 					exit(1);
 				}
-				printf("Client IP address: %s\n", ip_add); // debug
+				printf("Connection: %s\n", ip_add); // debug
 
 				/*store client data in client data structure */
 				struct connection_data *new_conn = (struct connection_data *)malloc(sizeof(struct connection_data));
@@ -320,8 +321,8 @@ int main(int argc, char **argv)
 				new_conn->conn_fd = new_sockfd;
 				new_conn->ssl_connected = FALSE;
 				new_conn->writeable = FALSE;
-				fprintf(stderr, "\nchat server ip: %s\n", new_conn->ip_address); // debug
-				fprintf(stderr, "\nconnection fd: %d\n", new_conn->conn_fd);	 // debug
+				//fprintf(stderr, "\nchat server ip: %s\n", new_conn->ip_address); // debug
+				fprintf(stderr, "connection fd: %d\n", new_conn->conn_fd);	 // debug
 
 				
 				/* if connection is the first connection, make this connection the head of the linked list; else, add connection to end of list */
@@ -329,6 +330,7 @@ int main(int argc, char **argv)
 				{
 					LIST_INSERT_HEAD(&head, new_conn, entries);
 					c_ptr = new_conn;
+					//fprintf(stderr, "first list entry\n");	 // debug
 				}
 				else
 				{
@@ -350,16 +352,23 @@ int main(int argc, char **argv)
 					if (np->writeable && FD_ISSET(np->conn_fd, &writeset) )
 					{
 						fprintf(stderr, "In write set\n");
-						if ((nwrite = SSL_write(np->ssl, np->sendBuff, MAX)) < 0)
+						fprintf(stderr, "%s",np->sendBuff);
+						nwrite = SSL_write(np->ssl, np->sendBuff, MAX);
+						ssl_err = SSL_get_error(np->ssl, nwrite);
+						if (nwrite < 0)
 						{
-							ssl_err = SSL_get_error(np->ssl, nwrite);
 							perror("write error on socket");
-							if(ssl_err == SSL_ERROR_WANT_WRITE){
+							if(ssl_err == SSL_ERROR_WANT_WRITE){//should be recoverable, just notify and continue
 								perror("SSL data awaiting write");
 							}
 						}
 						else if(nwrite > 0){
-							np->writeable = FALSE;
+							if(ssl_err == SSL_ERROR_WANT_WRITE){//should be recoverable, just notify and continue
+								perror("SSL data awaiting write");
+							}
+							else{
+								np->writeable = FALSE;
+							}
 						}
 					}
 
@@ -391,42 +400,44 @@ int main(int argc, char **argv)
 						}
 						else
 						{
-							if(SSL_pending() > 0)
+							if ((nread = SSL_read(np->ssl, np->readBuff, MAX)) <= 0)
 							{
-								if ((nread = SSL_read(np->ssl, np->readBuff, MAX)) <= 0)
+								//perror("SSL read error");//debug
+								ssl_err = SSL_get_error(np->ssl, nread);
+								/* if socket is readable and writable: socket is closed. OR ssl zero return: ssl closed. */
+								if ((FD_ISSET(np->conn_fd, &readset) && FD_ISSET(np->conn_fd, &writeset)) || (ssl_err == SSL_ERROR_ZERO_RETURN))
 								{
-									perror("SSL read error");
-									ssl_err = SSL_get_error(np->ssl, nread);
-									//TODO: do SSL error handling //currently checking nread and socket read/write works fine
-									if (FD_ISSET(np->conn_fd, &readset) && FD_ISSET(np->conn_fd, &writeset))
+									snprintf(s, MAX, "Connection to %s closed", np->ip_address);
+									fprintf(stderr, "%s", s);//print to stderr
+									memset(s, 0, MAX);
+									LIST_REMOVE(np, entries);
+									SSL_shutdown(np->ssl);
+									close(np->conn_fd);
+									free(np);
+									/* set c_ptr to the end of the list */
+									LIST_FOREACH(np2, &head, entries)
 									{
-										snprintf(s, MAX, "Connection to %s closed", np->ip_address);
-										fprintf(stderr, "%s", s);//print to stderr
-										memset(s, 0, MAX);
-										LIST_REMOVE(np, entries);
-										close(np->conn_fd);
-										free(np);
-										/* set c_ptr to the end of the list */
-										LIST_FOREACH(np2, &head, entries)
+										if (LIST_NEXT(np2, entries) == NULL)
 										{
-											if (LIST_NEXT(np2, entries) == NULL)
-											{
-												c_ptr = np2;
-											}
+											c_ptr = np2;
 										}
 									}
-									else if(ssl_err == SSL_ERROR_WANT_READ){
-										perror("SSL data awaiting read");
-									}
 								}
-								else
-								{ // nread > 0
-									handle_ret = HandleMessage(np->readBuff, np, head);
-									if (handle_ret < 0)//invalid message
-									{
-										fprintf(stderr, "%s:%d Invalid return from HandleMessage\n", __FILE__, __LINE__);
-										exit(1);
-									}
+								else if(ssl_err == SSL_ERROR_WANT_READ){//should be recoverable, just notify and continue
+									perror("SSL data awaiting read");
+								}
+								else if(ssl_err == SSL_ERROR_NONE){
+									perror("SSL err none");//debug
+								}
+							}
+							else
+							{ // nread > 0
+						
+								handle_ret = HandleMessage(np->readBuff, np, head);
+								if (handle_ret < 0)//invalid message
+								{
+									fprintf(stderr, "%s:%d Invalid return from HandleMessage\n", __FILE__, __LINE__);
+									exit(1);
 								}
 							}
 						}
