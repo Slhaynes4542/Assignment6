@@ -88,7 +88,7 @@ int HandleMessage(char *message, struct connection_data *c_data, struct listhead
 		{
 			snprintf(c_data->room_name, MAX, parsed_message);
 			/* generate response */
-			snprintf(response, MAX, "d,Chat Room Opened!");
+			snprintf(response, MAX, "dChat Room Opened!");
 		}
 		/*else, server needs to specify a new chat room name*/
 		else
