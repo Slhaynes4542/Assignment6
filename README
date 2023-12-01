@@ -1,22 +1,31 @@
----------To make and run--------------
+--------CIS525 Assignment6-----------
+   Luis Alcantara
+   Chibuike Eze
+   Samuel Haynes
+   Nicholas Wade
+   Lex Weeks
+-------------------------------------
+
+---------To make and run-------------
 1. type 'make' to make all the files
 2. type './directoryServer5' to run the directory server
-3. type './chatServer5 topic port' to run a chat server
-   valid topics are 'TV' and 'sports'. These need to be typed with exact matching spelling and case.
+3. type './chatServer5 <topic> <port>' to run a chat server
+   Valid topics are 'TV' and 'sports'. These need to be typed with exact matching spelling and case.
+   Valid ports are between 1024 and 65535.
    There are three certs, one for the directory and two for those different chat servers
 4. type './chatClient5' to run a chat client
---------------------------------------
+-------------------------------------
 
 --------Directory Server 5-----------
 The directory server uses TLS with all connections with nonblocking sockets in order to fufill its requirements.
 It uses OpenSSL to do this with its directory_server.crt that is self signed by a password-less private key.
-The server waits for a connection, it connects, does the SSL handshake, then begins communication.
+The server waits for a connection, it accepts, does the SSL handshake, then begins communication.
 If it is a chatServer it gets the relevent chatServer information and holds it in memory.
 If it is a chatClient it sends all the names of chat servers, and then when the chatClient asks for a server to join it sends the specific info for that server
 -------------------------------------
 
 -------Chat Server 5 ----------------
-The chat server first connects to the directory server via TLS and verifies the servers cert and common name held in the cert.
+The chat server first connects to the directory server via TLS and verifies the server's cert and common name held in the cert.
 Once verified it sends its information to the directory server.
 Then it waits for clients to join.
 When a client joins it does an openSSL handshake to set up a TLS connection.
