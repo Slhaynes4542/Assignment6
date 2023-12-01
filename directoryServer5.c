@@ -138,7 +138,8 @@ int HandleMessage(char *message, struct connection_data *c_data, struct listhead
 				/* assuming next token is port number TODO:error handling */
 				//c_data->port_number = atoi(tok); // TODO: replace atoi()?
 				char temp1[MAX] = {"\0"};
-				c_data->port_number = (int)strtoul(tok,&temp,10);
+				//c_data->port_number = (int)strtoul(tok,&temp,10);
+				sscanf(tok, "%d", %(c_data->port_number));
 				//fprintf(stderr, "%s:%d Port Number: %d\n", __FILE__, __LINE__, c_data->port_number); // debug
 				if((c_data->port_number > 1024) && (c_data->port_number < 65535)){
 					if (!LIST_EMPTY(&head)){
