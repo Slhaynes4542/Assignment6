@@ -96,16 +96,25 @@ fprintf(stderr, "%s:%d In handle message, message was: %s\n", __FILE__, __LINE__
 			/*generate response */
 			snprintf(response, MAX, "c%s : %s", c_data->client_name, parsed_message);
 			return 1;
-		break;
+			
 		/*if first character is a 'd',chat room successful */
 		case 'd':
 			fprintf(stderr, "Chat Room opened!\n", __FILE__, __LINE__);
 			return 1;
-			break;
 		
 		/*if first character is a 'o', chat room name is invalid, exit */
 		case 'e': 
 			fprintf(stderr, "Unable to open chat room. Chat room name already exists.\n");
+			exit(0);
+			
+		/* port out of range */
+		case 'f':
+			fprintf(stderr, "Unable to open chat room. Port number outside of range.\n");
+			exit(0);
+		
+		/* port already in use */
+		case 'g':
+			fprintf(stderr, "Unable to open chat room. Port number already in use.\n");
 			exit(0);
 
 		/*otherwise, error reading message */
