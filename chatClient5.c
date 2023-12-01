@@ -85,7 +85,8 @@ int HandleMessage(struct client *client_info, char * message)
 			token = strtok(s, "|");			
 			serv_addr.sin_addr.s_addr	= inet_addr(token);
 			token = strtok(NULL, "|");
-			port = atoi(token); //FIXME
+			//port = atoi(token); //FIXME
+			sscanf(token, "%d", &port);
 			serv_addr.sin_port = htons(port);
 			token = strtok(NULL, "|");
 			snprintf(expected_common_name, MAX, "%s_chatServer", token);
@@ -94,7 +95,8 @@ int HandleMessage(struct client *client_info, char * message)
 		case 'p':
 			/* we now have what we need to close the connection with the directory server,
 			and establish a connection with the chat server */
-			port = atoi(parsed_message);
+			//port = atoi(parsed_message);
+			sscanf(parsed_message, "%d", &port);
 			serv_addr.sin_port = htons(port);
 			
 
