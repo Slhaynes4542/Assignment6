@@ -99,7 +99,8 @@ int HandleMessage(char *message, struct connection_data *c_data, struct listhead
 		break;//goto return 1
 	/* connection is server and is supplying port number, set port number */
 	case 'p':
-		c_data->port_number = atoi(parsed_message);//TODO: replace atoi()?
+		//c_data->port_number = atoi(parsed_message);//TODO: replace atoi()?
+		sscanf(parsed_message, "%d", &(c_data->port_number));
 		//TODO: check for uniqueness
 		fprintf(stderr, "%s:%d Port Number: %d\n", __FILE__, __LINE__, c_data->port_number);//debug
 		break;//goto return 1
