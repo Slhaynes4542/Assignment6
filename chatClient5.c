@@ -54,17 +54,18 @@ struct client
 *************************************************/
 int HandleMessage(struct client *client_info, char * message)
 {
-	char* parsed_message = message + 2; 			/* message from server without overhead */
+	char* parsed_message = message + 1; 			/* message from server without overhead */
 	switch(message[0])
 	{
 		case 'n':
 			has_nickname = FALSE;
-			snprintf(client_info->responseBuff, MAX, "%s", parsed_message);
+			snprintf(s, MAX, "%s", parsed_message);
+			printf("%s\n", s);
 			break;
 
 		case 'c':
 			snprintf( s, MAX, "%s", parsed_message);
-						printf( "%s\n", s);
+			if(has_nickname) printf( "%s\n", s);
 			break; 
 
 		case 'j':
@@ -84,7 +85,8 @@ int HandleMessage(struct client *client_info, char * message)
 			token = strtok(s, "|");			
 			serv_addr.sin_addr.s_addr	= inet_addr(token);
 			token = strtok(NULL, "|");
-			port = atoi(token); //FIXME
+			//port = atoi(token); //FIXME
+			sscanf(token, "%d", &port);
 			serv_addr.sin_port = htons(port);
 			token = strtok(NULL, "|");
 			snprintf(expected_common_name, MAX, "%s_chatServer", token);
@@ -93,7 +95,8 @@ int HandleMessage(struct client *client_info, char * message)
 		case 'p':
 			/* we now have what we need to close the connection with the directory server,
 			and establish a connection with the chat server */
-			port = atoi(parsed_message);
+			//port = atoi(parsed_message);
+			sscanf(parsed_message, "%d", &port);
 			serv_addr.sin_port = htons(port);
 			
 
@@ -126,8 +129,6 @@ void ConnectToChatServer()
 		perror("client: can't open stream socket");
 		exit(1);
 	}
-
-
 
 	/* Connect to the directory server. */
 	//serv_addr.sin_addr.s_addr =  inet_addr(SERV_HOST_ADDR);
@@ -300,7 +301,7 @@ int val = fcntl(sockfd, F_GETFL, 0);		//Make sockfd non blocking
 			/* get user input */
 		if (1 == scanf(" %99[^\n]", client_info->responseBuff)) {
 
-					snprintf(s, MAX, "r,%s", client_info->responseBuff);
+					snprintf(s, MAX, "r%s", client_info->responseBuff);
 					SSL_write(directory_ssl, s, MAX);
 		}
 
@@ -341,13 +342,13 @@ int val = fcntl(sockfd, F_GETFL, 0);		//Make sockfd non blocking
 					/*if haven't specified a nickname, specify nickname*/
 					 if(!has_nickname)
 					{
-						snprintf(client_info->responseBuff, MAX,"n,%s", s);	
 						has_nickname = TRUE;
+						snprintf(client_info->responseBuff, MAX,"n%s", s);
 					}
 					/*else, send a chat*/
 					else
 					{
-						snprintf(client_info->responseBuff, MAX, "c,%s\n", s);
+						snprintf(client_info->responseBuff, MAX, "c%s\n", s);
 						
 					}
 

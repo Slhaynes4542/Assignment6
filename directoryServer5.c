@@ -62,7 +62,7 @@ LIST_HEAD(listhead, connection_data);
 
 int HandleMessage(char *message, struct connection_data *c_data, struct listhead head)
 {
-	char *parsed_message = message + 2; /* user message with no overhead      			*/
+	char *parsed_message = message + 1; /* user message with no overhead      			*/
 	struct connection_data *cp;			/* pointer for traversing client data 			*/
 	bool unique_chatroom = TRUE;		/* is the chat room name specified unique?  	*/
 	bool unique_port = TRUE;			/* is the server port unique? 					*/
@@ -77,7 +77,7 @@ int HandleMessage(char *message, struct connection_data *c_data, struct listhead
 		LIST_FOREACH(cp, &head, entries)
 		{
 			/* check for duplicate nicknames, set flag */
-			if (strcmp(cp->room_name, parsed_message) == 0)
+			if (strncmp(cp->room_name, parsed_message, MAX) == 0)
 			{
 				unique_chatroom = FALSE;
 			}
@@ -102,7 +102,8 @@ int HandleMessage(char *message, struct connection_data *c_data, struct listhead
 		break;
 	/* connection is server and is supplying port number, set port number */
 	case 'p':
-		c_data->port_number = atoi(parsed_message);//TODO: replace atoi()?
+		//c_data->port_number = atoi(parsed_message);//TODO: replace atoi()?
+		sscanf(parsed_message, "%d", &(c_data->port_number));
 		fprintf(stderr, "%s:%d Port Number: %d\n", __FILE__, __LINE__, c_data->port_number);
 	break;
 	/* recieve ip address from chat server(and port number) */
@@ -121,7 +122,8 @@ int HandleMessage(char *message, struct connection_data *c_data, struct listhead
 			if (tok != NULL)
 			{
 				/* assuming next token is port number TODO:error handling */
-				c_data->port_number = atoi(tok);													 // TODO: replace atoi()?
+				//c_data->port_number = atoi(tok); // TODO: replace atoi()?
+				sscanf(tok, "%d", &(c_data->port_number));
 				fprintf(stderr, "%s:%d Port Number: %d\n", __FILE__, __LINE__, c_data->port_number); // debug
 			}
 			else //no port number
@@ -141,7 +143,7 @@ int HandleMessage(char *message, struct connection_data *c_data, struct listhead
 		c_data->type = CLIENT;
 
 		/* if there are available chat servers, send their chat room name to the client */
-		if (server_count != 0) // replace with list_isempty()
+		if (0 != server_count) // replace with list_isempty()
 		{
 			memset(response, 0, sizeof(response));
 			LIST_FOREACH(cp, &head, entries)
@@ -150,7 +152,7 @@ int HandleMessage(char *message, struct connection_data *c_data, struct listhead
 				{
 					if (1 == i)
 					{ // first line
-						snprintf(temp, MAX, "d,%d. %s\n", i, cp->room_name);
+						snprintf(temp, MAX, "d%d. %s\n", i, cp->room_name);
 						strncpy(response, temp, MAX);
 					}
 					else
@@ -184,15 +186,15 @@ int HandleMessage(char *message, struct connection_data *c_data, struct listhead
 		LIST_FOREACH(cp, &head, entries)
 		{
 			/*if client specifies a chat room to join, send the servers information to the client */
-			if (strcmp(cp->room_name, parsed_message) == 0)
+			if (strncmp(cp->room_name, parsed_message, MAX) == 0)
 			{
 				/*send both with format: ip|port*/
 				/* send chat server ip address */
 				memset(response, 0, sizeof(response));
-				snprintf(response, MAX, "i,%s|", cp->ip_address);
+				snprintf(response, MAX, "i%s|", cp->ip_address);
 				/* send chat server port number */
 				// memset(response, 0, sizeof(response));
-				// snprintf(response, MAX, "p,%i", cp->port_number);
+				// snprintf(response, MAX, "p%i", cp->port_number);
 				snprintf(temp, MAX, "%i|", cp->port_number);
 				strncat(response, temp, MAX);
 				snprintf(temp, MAX, "%s", cp->room_name);
@@ -310,7 +312,7 @@ int main(int argc, char **argv)
 				/* Accept a new connection request */
 				clilen = sizeof(cli_addr);
 				new_sockfd = accept(sockfd, (struct sockaddr *)&cli_addr, &clilen);
-				if (new_sockfd < 0)
+				if (0 > new_sockfd)
 				{
 					perror("server: accept error");
 					close(new_sockfd); // TODO: close new socket?
@@ -367,14 +369,14 @@ int main(int argc, char **argv)
 					if (np->writeable && FD_ISSET(np->conn_fd, &writeset) )
 					{
 						fprintf(stderr, "In write set\n");
-						if ((nwrite = SSL_write(np->ssl, np->sendBuff, MAX)) < 0) //FIXME
-						{ // TODO: change to SSL_write()
+						if ((nwrite = SSL_write(np->ssl, np->sendBuff, MAX)) < 0)
+						{
 							if (errno != EWOULDBLOCK)//TODO: replace with ssl error checks
 							{
 								perror("write error on socket");
 							}
 						}
-						if(nwrite > 0){
+						if(0 < nwrite){
 							np->writeable = FALSE;
 						}
 					}
@@ -393,7 +395,7 @@ int main(int argc, char **argv)
 							}
 
 							SSL_set_fd(np->ssl, np->conn_fd); /* associate SSL state with socket	*/
-							if (SSL_accept(np->ssl) == 0)
+							if (0 == SSL_accept(np->ssl))
 							{
 								ERR_print_errors_fp(stderr);
 							}
@@ -450,12 +452,12 @@ int main(int argc, char **argv)
 								handle_ret = HandleMessage(np->readBuff, np, head);
 
 								/* If HandleMessage() return 1, then stage response */
-								if (handle_ret == 1)
+								if (1 == handle_ret)
 								{
 									strncpy(np->sendBuff, response, MAX);
 								}
 								/* if HandleMessage() return 0, client entered invalid chat room name */
-								else if (handle_ret == 0)
+								else if (0 == handle_ret)
 								{
 									snprintf(response, MAX, "v,Enter the name of the chat server you want to join:");//TODO: Move this to HandleMessage()?
 									strncpy(np->sendBuff, response, MAX);

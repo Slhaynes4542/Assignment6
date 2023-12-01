@@ -55,20 +55,20 @@ char 				ip_address[INET_ADDRSTRLEN];	 /* ip address for this server 							*/
 
 int HandleMessage(char * message, struct client_data* c_data, struct listhead head)
 {
-	char* parsed_message = message + 2; 			/* user message with no overhead      */
+	char* parsed_message = message + 1; 			/* user message with no overhead      */
 	struct client_data * cp;						/* pointer for traversing client data */
 	bool	unique_nickname = TRUE;			   		/* is the nickname specified unique?  */
 
 fprintf(stderr, "%s:%d In handle message, message was: %s\n", __FILE__, __LINE__, message);
 	switch(message[0])
-	{
+	{ 
 		/*if first character is an 'n', process nickname */ 
 		case 'n':
 			/* process */
 			LIST_FOREACH(cp, &head, entries)
 			{
 				/* check for duplicate nicknames, set flag */
-				if(strcmp(cp->client_name, parsed_message) == 0 )
+				if(0 == strncmp(cp->client_name, parsed_message, MAX))
 				{
 					unique_nickname = FALSE;
 				}
@@ -80,13 +80,13 @@ fprintf(stderr, "%s:%d In handle message, message was: %s\n", __FILE__, __LINE__
 					snprintf(c_data->client_name, MAX, "%s", parsed_message);
 
 					/*generate response */
-					snprintf(response, MAX, "j,%s has joined the chat.", parsed_message);			
+					snprintf(response, MAX, "j%s has joined the chat.", parsed_message);			
 					return 1;
 			}
 			else
 			{
 				/*generate response */
-				snprintf(response, MAX, "n,Nickname already exists. Please enter unique nickname: ");
+				snprintf(response, MAX, "nNickname already exists. Please enter unique nickname: ");
 				return 0;
 			}
 		break;
@@ -94,12 +94,12 @@ fprintf(stderr, "%s:%d In handle message, message was: %s\n", __FILE__, __LINE__
 		/*if first character is a 'c', process chat */
 		case 'c':
 			/*generate response */
-			snprintf(response, MAX, "c,%s : %s", c_data->client_name, parsed_message);
+			snprintf(response, MAX, "c%s : %s", c_data->client_name, parsed_message);
 			return 1;
 		break;
 		/*if first character is a 'd',chat room successful */
 		case 'd':
-			fprintf(stderr, "Chat Room opened!\n", __FILE__, __LINE__);
+			fprintf(stderr, "Chat Room opened!\n");
 			return 1;
 			break;
 		
@@ -155,7 +155,14 @@ int main(int argc, char **argv)
 	}
 	else{
 		snprintf(room_name, MAX, argv[1]);
-		port_number = atoi(argv[2]);
+		//port_number = atoi(argv[2]);
+		sscanf(argv[2], "%d", &port_number);
+		if(1024 > port_number || 65535 < port_number){
+			printf("The port# you entered [%d] is out of bounds.\n", port_number);
+			printf("The valid range of port #s is 1024 - 65535, inclusively.\n");
+			printf("Please try again.\n");
+			exit(1);
+		}
 	}
 
 	/* Init SSL */
@@ -244,13 +251,13 @@ int main(int argc, char **argv)
 
 
 		/* send room name to directory server */
-		//snprintf(dir_serv.room_to, MAX, "n,%s", room_name);
-		snprintf(dir_response, MAX, "n,%s", room_name);
+		//snprintf(dir_serv.room_to, MAX, "n%s", room_name);
+		snprintf(dir_response, MAX, "n%s", room_name);
 		SSL_write(dirSSL, dir_response, MAX);				// HW6: how should we handle these two write()?	//FIXME
 
 		/* send port number to directory server */
-		//snprintf(dir_serv.port_num_to, MAX, "p,%d", port_number);
-		snprintf(dir_response, MAX, "p,%d", port_number);
+		//snprintf(dir_serv.port_num_to, MAX, "p%d", port_number);
+		snprintf(dir_response, MAX, "p%d", port_number);
 		SSL_write(dirSSL, dir_response, MAX);
 
 	}
@@ -337,7 +344,7 @@ int main(int argc, char **argv)
 				/* Accept a new connection request */
 				clilen = sizeof(cli_addr);
 				new_sockfd = accept(sockfd, (struct sockaddr *) &cli_addr, &clilen);
-				if (new_sockfd < 0) {
+				if (0 > new_sockfd) {
 					perror("server: accept error");
 					exit(1);
 				}
@@ -348,7 +355,7 @@ int main(int argc, char **argv)
 				SSL *newSSL = SSL_new(cliCTX);
 				SSL_set_fd(newSSL, new_sockfd);
 				fprintf(stderr, "%s:%d CLient connected via TCP attempting SSL connection...\n", __FILE__, __LINE__);
-				if(SSL_accept(newSSL) <= 0) {
+				if(0 >= SSL_accept(newSSL)) {
 					ERR_print_errors_fp(stderr);
 					exit(1);
 				}
@@ -369,11 +376,11 @@ int main(int argc, char **argv)
 				new_client->w_ptr = &(new_client->write);
 				//fprintf(stderr, "\nclient fd: %d\n", (int)(new_client->ssl));
 				/* if client is the first client, make this client the head of the linked list and announce event; else, add client to end of list */
-				if(client_count == 0 )
+				if(0 == client_count)
 				{
 					LIST_INSERT_HEAD(&head, new_client, entries); 
 					c_ptr = new_client;
-					snprintf(response, MAX, "j,You are the first to join the chat!\nPlease Enter a nickname:\n\0");
+					snprintf(response, MAX, "jYou are the first to join the chat!\nPlease Enter a nickname:\n\0");
 					snprintf(new_client->write, MAX, response);
 					new_client->writeable = TRUE;
 				}
@@ -381,7 +388,7 @@ int main(int argc, char **argv)
 				{
 					LIST_INSERT_AFTER(c_ptr, new_client, entries);
 					c_ptr = new_client;
-					snprintf(response, MAX, "j,Please enter nickname: ");
+					snprintf(response, MAX, "jPlease enter nickname: ");
 					strncpy(new_client->write, response, MAX);
 					new_client->writeable = TRUE;
 
@@ -416,7 +423,7 @@ int main(int argc, char **argv)
 							{ 
 								perror("read error on socket"); 
 							}
-							else if( nread == 0)
+							else if(0 == nread)
 							{
 								fprintf(stderr, "%s:%d: EOF on socket\n", __FILE__, __LINE__);
 							}
@@ -440,13 +447,13 @@ int main(int argc, char **argv)
 						}
 						
 						/*if the r_ptr is equal to the the MAX address of the read buffer, we have the entire message. Proceed with handling message.*/
-						if(nread > 0)
+						if(0 < nread)
 						{
 							/* handle message */
 							handle_ret = HandleMessage(np->read, np, head);
 							
 							/* If HandleMessage() return 1, then broadcast message to all clients except the sender. */
-							if(handle_ret == 1)
+							if(1 == handle_ret)
 							{
 								LIST_FOREACH(np2, &head, entries)
 								{
@@ -463,7 +470,7 @@ int main(int argc, char **argv)
 										
 						}
 						/* If HandleMessage() returns 0, user has entered an invalid nickname. */
-						if( handle_ret == 0 )
+						if(0 == handle_ret)
 						{
 							strncpy(np->write, response, MAX);
 							np->writeable = TRUE;
