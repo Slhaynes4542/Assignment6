@@ -99,7 +99,8 @@ int HandleMessage(char *message, struct connection_data *c_data, struct listhead
 	/* connection is server and is supplying port number, set port number */
 	case 'p':
 		memset(temp, 0, MAX);
-		c_data->port_number = (int)strtoul(parsed_message,&temp,10);//TODO: check temp for extra chars
+		//c_data->port_number = (int)strtoul(parsed_message,&temp,10);//TODO: check temp for extra chars
+		sscanf(parsed_message, "%d", &(c_data->port_number));
 		//fprintf(stderr, "%s:%d Port Number: %d\n", __FILE__, __LINE__, c_data->port_number); // debug
 		if((c_data->port_number > 1024) && (c_data->port_number < 65535)){
 			if (!LIST_EMPTY(&head)){
