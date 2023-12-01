@@ -18,7 +18,6 @@
 /* enums */
 enum connection_type
 {
-	UNKNOWN,
 	SERVER,
 	CLIENT
 };
@@ -71,38 +70,37 @@ int HandleMessage(char *message, struct connection_data *c_data, struct listhead
 	{
 	/*connection is a chat server and is providing chat room name, set the connection type and name, TO-DO: check for duplicate names */
 	case 'n':
-		if (!LIST_EMPTY(&head))
-		{
-			/*process */
-			LIST_FOREACH(cp, &head, entries)
-			{
+		memset(temp, 0, MAX);
+		strncpy(temp, parsed_message, MAX);//ensure null term
+		if (!LIST_EMPTY(&head)){
+			LIST_FOREACH(cp, &head, entries){
 				/* check for duplicate nicknames, set flag */
-				if (strncmp(cp->room_name, parsed_message, MAX) == 0)
-				{
-					unique_chatroom = FALSE;
+				if(cp->type == SERVER){
+					fprintf(stderr, "%s", cp->room_name);
+					if (strcmp(cp->room_name, temp) == 0){
+						unique_chatroom = FALSE;
+					}
 				}
 			}
 		}
 		/* if chat room name is unique, add to connection record and generate a response */
-		if (unique_chatroom)
-		{
+		if (unique_chatroom){
 			snprintf(c_data->room_name, MAX, parsed_message);//save room name
 			snprintf(c_data->sendBuff, MAX, "dChat Room Opened!");//response to chat server
 		}
-		else	/*else, server needs to specify a new chat room name*/
-		{
+		else{	/*else, server needs to specify a new chat room name*/
 			snprintf(c_data->sendBuff, MAX, "e");
 			c_data->kill_flag = TRUE;//flag for removal
 		}
 		c_data->writeable = TRUE;///flag client as having data to write
 		c_data->type = SERVER;
-		fprintf(stderr, "%s:%d Chat Room name: %s\n", __FILE__, __LINE__, c_data->room_name);//debug
+		//fprintf(stderr, "%s:%d Chat Room name: %s\n", __FILE__, __LINE__, c_data->room_name);//debug
 		break;//goto return 1
 	/* connection is server and is supplying port number, set port number */
 	case 'p':
 		memset(temp, 0, MAX);
 		c_data->port_number = (int)strtoul(parsed_message,&temp,10);//TODO: check temp for extra chars
-		fprintf(stderr, "%s:%d Port Number: %d\n", __FILE__, __LINE__, c_data->port_number); // debug
+		//fprintf(stderr, "%s:%d Port Number: %d\n", __FILE__, __LINE__, c_data->port_number); // debug
 		if((c_data->port_number > 1024) && (c_data->port_number < 65535)){
 			if (!LIST_EMPTY(&head)){
 				LIST_FOREACH(cp, &head, entries){
@@ -189,7 +187,7 @@ int HandleMessage(char *message, struct connection_data *c_data, struct listhead
 					if (1 == i)
 					{ // first line
 						snprintf(temp, MAX, "d%d. %s\n", i, cp->room_name);
-						fprintf(stderr,"%s",temp);
+						//fprintf(stderr,"%s",temp);//debug
 						strncpy(response, temp, MAX);
 					}
 					else
@@ -351,7 +349,7 @@ int main(int argc, char **argv)
 					perror("inet_ntop");
 					exit(1);
 				}
-				printf("Connection: %s\n", ip_add); // debug
+				fprintf(stderr, "New Connection: %s\n", ip_add); // debug
 
 				/*store client data in client data structure */
 				struct connection_data *new_conn = (struct connection_data *)malloc(sizeof(struct connection_data));
