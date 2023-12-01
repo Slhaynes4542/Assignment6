@@ -11,7 +11,7 @@
 2. type './directoryServer5' to run the directory server
 3. type './chatServer5 <topic> <port>' to run a chat server
    Valid topics are 'TV' and 'sports'. These need to be typed with exact matching spelling and case.
-   Valid ports are between 1024 and 65535.
+   Valid ports are between 1024 and 65535. Ports must be unique between servers.
    There are three certs, one for the directory and two for those different chat servers
 4. type './chatClient5' to run a chat client
 -------------------------------------
@@ -32,6 +32,7 @@ When a client joins it does an openSSL handshake to set up a TLS connection.
 It follows standard functionality after, setting nicknames for clients when they first get in, and then pass messages on to all other clients.
 **Limitations**
  - If a server name is entered other then TV or sports the server will not start. This is due to only have a couple certificate files
+ - If a duplicate server name is used, Directory will handle and remove connection. Chat Server stays running with no connections.
 -------------------------------------
 
 -------Chat Client 5-----------------
